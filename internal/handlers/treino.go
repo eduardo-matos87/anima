@@ -6,14 +6,25 @@ import (
 )
 
 type Treino struct {
-	Dia       string   `json:"dia"`
+	Nivel     string   `json:"nivel"`
+	Objetivo  string   `json:"objetivo"`
 	Exercicios []string `json:"exercicios"`
 }
 
 func GerarTreino(w http.ResponseWriter, r *http.Request) {
+	nivel := r.URL.Query().Get("nivel")
+	objetivo := r.URL.Query().Get("objetivo")
+
+	exercicios := []string{"Flexão", "Agachamento", "Prancha"}
+
+	if nivel == "intermediario" && objetivo == "hipertrofia" {
+		exercicios = []string{"Supino reto", "Puxada alta", "Agachamento livre", "Remada"}
+	}
+
 	treino := Treino{
-		Dia:       "Segunda",
-		Exercicios: []string{"Supino reto", "Supino inclinado", "Crucifixo", "Tríceps testa"},
+		Nivel:     nivel,
+		Objetivo:  objetivo,
+		Exercicios: exercicios,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
