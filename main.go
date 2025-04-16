@@ -11,26 +11,27 @@
 package main
 
 import (
-	"anima/internal/handlers"
-	"database/sql"
-	"fmt"
-	"log"
-	"net/http"
-
-	_ "github.com/mattn/go-sqlite3"              // Driver do SQLite
-	httpSwagger "github.com/swaggo/http-swagger" // Handler para Swagger UI
-	_ "anima/docs"                              // Importa a documentação gerada pelo swag
+	"anima/internal/handlers"              // Pacote com os handlers dos endpoints
+	"database/sql"                         // SQL padrão para conexão com o banco
+	"fmt"                                  // Formatação e impressão de mensagens
+	"log"                                  // Logging de erros e mensagens
+	"net/http"                             // Servidor HTTP
+	
+	_ "github.com/mattn/go-sqlite3"          // Driver SQLite3
+	httpSwagger "github.com/swaggo/http-swagger" // Handler para Swagger UI (documentação)
+	_ "anima/docs"                         // Importa a documentação gerada pelo swag (Swagger)
 )
 
 func main() {
-	// 🔌 Conecta ao banco SQLite (arquivo anima.db na raiz)
+	// 🔌 Conecta ao banco de dados SQLite (arquivo anima.db na raiz do projeto)
 	db, err := sql.Open("sqlite3", "./anima.db")
 	if err != nil {
 		log.Fatal("Erro ao conectar no banco de dados:", err)
 	}
-	defer db.Close()
+	defer db.Close() // Garante que a conexão com o banco será fechada quando a função main terminar
 
 	// 🌐 Rota de teste: /ping
+	// Serve para verificar se o servidor está ativo
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "pong")
 	})
@@ -39,57 +40,68 @@ func main() {
 	// Endpoints de Treino
 	// -----------------------------------------------------------------------------
 
+	// GET /treino
 	// @Summary Busca treinos
-	// @Description Retorna treinos com base no nível e objetivo.
+	// @Description Retorna treinos com base nos parâmetros 'nivel' e 'objetivo'.
 	// @Tags Treino
 	// @Accept json
 	// @Produce json
 	// @Param nivel query string true "Nível do treino"
 	// @Param objetivo query string true "Objetivo do treino"
 	// @Success 200 {object} handlers.RespostaTreino
-	// @Failure 500 {object} map[string]string
 	// @Router /treino [get]
-	http.HandleFunc("/treino", handlers.GerarTreino(db)) // GET para consultar treinos
+	http.HandleFunc("/treino", handlers.GerarTreino(db))
 
+	// POST /treino/criar
 	// @Summary Cria um novo treino
 	// @Description Cadastra um novo treino e vincula os exercícios.
 	// @Tags Treino
 	// @Accept json
 	// @Produce json
-	// @Param treino body handlers.NovoTreino true "Dados do treino"
+	// @Param treino body handlers.NovoTreino true "Dados do novo treino"
 	// @Success 201 {object} map[string]interface{}
-	// @Failure 400 {object} map[string]string
-	// @Failure 500 {object} map[string]string
 	// @Router /treino/criar [post]
-	http.HandleFunc("/treino/criar", handlers.CriarTreino(db)) // POST para criar treino
+	// Aqui, estamos utilizando um middleware para proteger a rota com autenticação.
+	http.HandleFunc("/treino/criar", handlers.AuthMiddleware(handlers.CriarTreino(db)))
 
 	// -----------------------------------------------------------------------------
-	// Endpoints de Exercícios, Objetivos e Grupos
+	// Endpoints para Consultas de Exercícios, Objetivos e Grupos Musculares
 	// -----------------------------------------------------------------------------
-	// (Assumindo que esses handlers foram implementados em outros arquivos)
+
+	// GET /exercicios?grupo=peito
+	// Retorna os exercícios filtrados por grupo muscular
 	http.HandleFunc("/exercicios", handlers.ListarExercicios(db))
+
+	// GET /objetivos
+	// Retorna a lista de objetivos cadastrados (ex: Emagrecimento, Ganho de massa magra, Resistência física)
 	http.HandleFunc("/objetivos", handlers.ListarObjetivos(db))
+
+	// GET /grupos
+	// Retorna os grupos musculares cadastrados (ex: Peito, Costas, Pernas, etc.)
 	http.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))
 
 	// -----------------------------------------------------------------------------
 	// Endpoints de Usuário: Registro e Login
 	// -----------------------------------------------------------------------------
+
+	// POST /register
 	// @Summary Registra um novo usuário
-	// @Description Cria um usuário com nome, email e senha.
+	// @Description Cria um novo usuário com nome, email e senha.
 	// @Tags User
 	// @Accept json
 	// @Produce json
-	// @Param user body handlers.Credentials true "Dados de registro"
+	// @Param user body handlers.Credentials true "Dados de registro do usuário"
 	// @Success 201 {object} map[string]interface{}
 	// @Router /register [post]
 	http.HandleFunc("/register", handlers.RegisterUser(db))
 
-	// @Summary Login de usuário
+	// POST /login
+	// @Summary Efetua login do usuário
 	// @Description Autentica o usuário e retorna um token JWT.
 	// @Tags User
 	// @Accept json
 	// @Produce json
-	// @Param credentials body handlers.Credentials true "Dados de login"
+	// @Param credentials body handlers.Credentials true "Dados de login do usuário"
 	// @Success 200 {object} map[string]string
 	// @Router /login [post]
 	http.HandleFunc("/login", handlers.LoginUser(db))
@@ -97,7 +109,8 @@ func main() {
 	// -----------------------------------------------------------------------------
 	// Rota para Documentação Swagger
 	// -----------------------------------------------------------------------------
-	// Acesse a documentação em: http://localhost:8080/swagger/index.html
+	// Serve a documentação da API gerada pelo swag em:
+	// http://localhost:8080/swagger/index.html
 	http.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	// 🚀 Inicia o servidor na porta 8080
