@@ -18,11 +18,11 @@ import (
 	"net/http"
 	"os"
 
-	"anima/internal/handlers"                  // Handlers da aplicação
-	_ "anima/docs"                             // Swagger docs
+	"anima/internal/handlers"                   // Handlers da aplicação
+	_ "anima/docs"                              // Swagger docs
 	httpSwagger "github.com/swaggo/http-swagger"
-	_ "github.com/mattn/go-sqlite3"            // Driver SQLite3
-	logrus "github.com/sirupsen/logrus"        // Log avançado
+	_ "github.com/mattn/go-sqlite3"             // Driver SQLite3
+	logrus "github.com/sirupsen/logrus"         // Log avançado
 )
 
 // corsMiddleware adiciona headers CORS e responde OPTIONS
@@ -44,6 +44,7 @@ func main() {
 	// 1) Log em modo DEBUG
 	logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
 	logrus.SetLevel(logrus.DebugLevel)
+
 	const logFile = "/var/log/anima.log"
 	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
