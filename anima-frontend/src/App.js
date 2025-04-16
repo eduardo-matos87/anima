@@ -1,38 +1,37 @@
 // Arquivo: anima-frontend/src/App.js
 
 import React, { useState } from 'react';
-import api from './api';    // Instância do Axios
-import './App.css';         // Seus estilos
+import api from './api';    // Instância do Axios configurada em src/api.js
+import './App.css';         // Seus estilos globais
 
 /**
- * Componente principal da aplicação web Anima Front‑End.
- * Gerencia o login do usuário e a chamada protegida para criar um treino.
+ * Componente principal da aplicação Anima Front‑End.
+ * Gerencia o login do usuário, criação de treino protegido e listagem de treinos.
  */
 function App() {
-  // States para os campos de login e para exibir erros/respostas
+  // 📧 State para armazenar o e‑mail digitado
   const [loginEmail, setLoginEmail] = useState("");
+  // 🔒 State para armazenar a senha digitada
   const [loginPassword, setLoginPassword] = useState("");
+  // ⚠️ State para exibir mensagens de erro (login ou criação de treino)
   const [errorMessage, setErrorMessage] = useState("");
+  // 📈 State para armazenar a resposta do endpoint /treino/criar
   const [treinoData, setTreinoData] = useState(null);
+  // 📊 State para armazenar a lista de treinos retornada pelo backend
+  const [treinos, setTreinos] = useState([]);
 
   /**
-   * Envia a requisição de login.
-   * Agora com DEBUG no console e botão tipo="button" para evitar recarregamento de página.
+   * loginUser → Faz POST /login com email e senha.
+   * Salva o token JWT no localStorage se for bem‑sucedido.
    */
   const loginUser = async () => {
-    // 1) DEBUG: veja exatamente o que está sendo enviado
-    console.log("🔍 Payload de login:", {
-      email: loginEmail,
-      password: loginPassword
-    });
-
+    console.log("🔍 Payload login:", { email: loginEmail, password: loginPassword });
     try {
       const response = await api.post(
         "/login",
         { email: loginEmail, password: loginPassword },
         { headers: { "Content-Type": "application/json" } }
       );
-      // 2) Se chegar aqui, salvamos o token
       localStorage.setItem("jwt", response.data.token);
       setErrorMessage("");
       alert("✅ Login realizado com sucesso!");
@@ -43,8 +42,8 @@ function App() {
   };
 
   /**
-   * Envia a requisição para criar um treino (endpoint protegido).
-   * O interceptor de api.js adiciona o token automaticamente.
+   * createTreino → Faz POST /treino/criar (endpoint protegido).
+   * O interceptor de api.js anexa o JWT automaticamente.
    */
   const createTreino = async () => {
     try {
@@ -59,7 +58,21 @@ function App() {
       setErrorMessage("");
     } catch (err) {
       console.error("❌ Erro ao criar treino:", err);
-      setErrorMessage("Erro ao criar treino. Está logado?");
+      setErrorMessage("Erro ao criar treino. Está autenticado?");
+    }
+  };
+
+  /**
+   * fetchTreinos → Faz GET /treinos (endpoint protegido).
+   * Atualiza o state com o array de treinos detalhados.
+   */
+  const fetchTreinos = async () => {
+    try {
+      const response = await api.get("/treinos");
+      setTreinos(response.data);
+    } catch (err) {
+      console.error("❌ Erro ao listar treinos:", err);
+      setErrorMessage("Erro ao carregar treinos. Está autenticado?");
     }
   };
 
@@ -67,7 +80,7 @@ function App() {
     <div className="App" style={{ padding: 20, fontFamily: 'Arial, sans-serif' }}>
       <h1>Anima Front‑End</h1>
 
-      {/* === LOGIN === */}
+      {/* === Seção de Login === */}
       <section style={{ marginBottom: 40 }}>
         <h2>Login</h2>
         <input
@@ -84,7 +97,6 @@ function App() {
           onChange={e => setLoginPassword(e.target.value)}
           style={{ marginRight: 10, padding: 8 }}
         />
-        {/* Botão type="button" evita comportamento de submit padrão */}
         <button type="button" onClick={loginUser} style={{ padding: '8px 16px' }}>
           Entrar
         </button>
@@ -93,8 +105,8 @@ function App() {
         )}
       </section>
 
-      {/* === CRIAR TREINO === */}
-      <section>
+      {/* === Seção de Criação de Treino === */}
+      <section style={{ marginBottom: 40 }}>
         <h2>Criar Treino (Requer login)</h2>
         <button type="button" onClick={createTreino} style={{ padding: '8px 16px' }}>
           Criar Treino
@@ -104,6 +116,29 @@ function App() {
             {JSON.stringify(treinoData, null, 2)}
           </pre>
         )}
+      </section>
+
+      {/* === Seção de Listagem de Treinos === */}
+      <section>
+        <h2>Seus Treinos</h2>
+        <button type="button" onClick={fetchTreinos} style={{ padding: '8px 16px' }}>
+          Carregar Treinos
+        </button>
+        {treinos.length > 0 && treinos.map(t => (
+          <div
+            key={t.id}
+            style={{
+              border: '1px solid #ccc',
+              borderRadius: 4,
+              padding: 10,
+              marginTop: 10
+            }}
+          >
+            <strong>{t.divisao} – {t.nivel} / {t.objetivo}</strong><br/>
+            Dias: {t.dias}<br/>
+            Exercícios: {t.exercicios.join(', ')}
+          </div>
+        ))}
       </section>
     </div>
   );
