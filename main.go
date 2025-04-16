@@ -101,4 +101,7 @@ func main() {
 	// 🚀 Inicia o servidor na porta 8080
 	fmt.Println("Servidor rodando em http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	http.HandleFunc("/login", handlers.LoginUser(db))
+
 }
