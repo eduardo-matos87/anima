@@ -61,10 +61,10 @@ func main() {
 		logrus.SetOutput(f)
 	}
 
-	// 2) Conecta ao banco SQLite
-	db, err := sql.Open("sqlite3", "./anima.db")
+	// Conexão com PostgreSQL
+	db, err := sql.Open("postgres", "host=127.0.0.1 port=5432 user=postgres password=anima123 dbname=anima sslmode=disable")
 	if err != nil {
-		logrus.Fatal("Erro ao conectar no banco de dados:", err)
+		logrus.Fatal("Erro ao conectar no PostgreSQL:", err)
 	}
 	defer db.Close()
 
