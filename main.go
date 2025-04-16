@@ -21,7 +21,7 @@ import (
 	"anima/internal/handlers"                   // Handlers da aplicação
 	_ "anima/docs"                              // Swagger docs
 	httpSwagger "github.com/swaggo/http-swagger"
-	_ "github.com/mattn/go-sqlite3"             // Driver SQLite3
+	_ "github.com/lib/pq" // Postgres
 	logrus "github.com/sirupsen/logrus"         // Log avançado
 )
 
