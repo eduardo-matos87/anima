@@ -113,7 +113,7 @@ export default function DashboardPage() {
                     className="flex items-center space-x-2 bg-indigo-50 rounded-lg p-3"
                   >
                     <span className="w-2 h-2 bg-indigo-600 rounded-full inline-block" />
-                    <span className="text-gray-800">{ex}/span>
+                    <span className="text-gray-800">{ex}</span>
                   </li>
                 ))}
               </ul>
