@@ -1,0 +1,15 @@
+basePath: /
+host: localhost:8080
+info:
+  contact:
+    email: eduardo@example.com
+    name: Eduardo Matos
+  description: API para gerenciamento de treinos e saúde.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Anima API
+  version: "1.0"
+paths: {}
+swagger: "2.0"

@@ -1,0 +1,20 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "API para gerenciamento de treinos e saúde.",
+        "title": "Anima API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "Eduardo Matos",
+            "email": "eduardo@example.com"
+        },
+        "license": {
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {}
+}
