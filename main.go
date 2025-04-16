@@ -13,22 +13,42 @@
 package main
 
 import (
-	"anima/internal/handlers"            // Handlers da API
-	"database/sql"                       // Conexão SQL
-	"fmt"                                // Impressão formatada
-	"net/http"                           // HTTP server
-	"os"                                 // Acesso a arquivos do SO
+	"anima/internal/handlers"
+	"database/sql"
+	"fmt"
+	"net/http"
+	"os"
 
-	_ "github.com/mattn/go-sqlite3"      // Driver SQLite3
+	_ "github.com/mattn/go-sqlite3"
 	httpSwagger "github.com/swaggo/http-swagger"
-	_ "anima/docs"                       // Documentação Swagger
+	_ "anima/docs"
 
-	logrus "github.com/sirupsen/logrus"  // Logging avançado
+	logrus "github.com/sirupsen/logrus"
 )
+
+// corsMiddleware envolve um handler e adiciona os headers CORS,
+// além de responder as requisições OPTIONS.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Permite a origem do front-end (ajuste se mudar de porta ou domínio)
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		// Métodos permitidos
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		// Headers que o cliente pode enviar
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Se for preflight, encerra aqui
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Caso contrário, segue para o handler real
+		next.ServeHTTP(w, r)
+	})
+}
 
 func main() {
 	// ----------------------------------------------------------------------------
-	// 1) CONFIGURAÇÃO DE LOG (modo DEBUG)
+	// Logrus em modo DEBUG
 	// ----------------------------------------------------------------------------
 	logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
 	logrus.SetLevel(logrus.DebugLevel)
@@ -43,7 +63,7 @@ func main() {
 	}
 
 	// ----------------------------------------------------------------------------
-	// 2) CONEXÃO COM O BANCO DE DADOS
+	// Banco de dados
 	// ----------------------------------------------------------------------------
 	db, err := sql.Open("sqlite3", "./anima.db")
 	if err != nil {
@@ -52,35 +72,38 @@ func main() {
 	defer db.Close()
 
 	// ----------------------------------------------------------------------------
-	// 3) CONFIGURAÇÃO DE ROTAS / ENDPOINTS
+	// Registro de rotas
 	// ----------------------------------------------------------------------------
+	mux := http.NewServeMux()
 
-	// Health check
-	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+	// Health‑check
+	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "pong")
 	})
 
 	// Treinos
-	http.HandleFunc("/treino", handlers.GerarTreino(db))
-	http.HandleFunc("/treino/criar", handlers.AuthMiddleware(handlers.CriarTreino(db)))
+	mux.HandleFunc("/treino", handlers.GerarTreino(db))
+	mux.HandleFunc("/treino/criar", handlers.AuthMiddleware(handlers.CriarTreino(db)))
 
 	// Consultas
-	http.HandleFunc("/exercicios", handlers.ListarExercicios(db))
-	http.HandleFunc("/objetivos", handlers.ListarObjetivos(db))
-	http.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))
+	mux.HandleFunc("/exercicios", handlers.ListarExercicios(db))
+	mux.HandleFunc("/objetivos", handlers.ListarObjetivos(db))
+	mux.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))
 
 	// Usuário
-	http.HandleFunc("/register", handlers.RegisterUser(db))
-	http.HandleFunc("/login", handlers.LoginUser(db))
+	mux.HandleFunc("/register", handlers.RegisterUser(db))
+	mux.HandleFunc("/login", handlers.LoginUser(db))
 
 	// Swagger UI
-	http.Handle("/swagger/", httpSwagger.WrapHandler)
+	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	// ----------------------------------------------------------------------------
-	// 4) INICIALIZAÇÃO DO SERVIDOR HTTP
+	// Inicia o servidor com CORS habilitado
 	// ----------------------------------------------------------------------------
+	handlerWithCORS := corsMiddleware(mux)
+
 	logrus.Info("Servidor rodando em http://localhost:8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(":8080", handlerWithCORS); err != nil {
 		logrus.Fatal("Erro no ListenAndServe:", err)
 	}
 }
