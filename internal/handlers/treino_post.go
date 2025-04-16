@@ -9,24 +9,24 @@ import (
 // NovoTreino representa o corpo da requisição para criar um novo treino
 type NovoTreino struct {
 	Nivel      string  `json:"nivel"`       // Ex: iniciante, intermediario
-	Objetivo   string  `json:"objetivo"`    // Ex: emagrecimento
-	Dias       int     `json:"dias"`        // Ex: 3
+	Objetivo   string  `json:"objetivo"`    // Ex: emagrecimento, hipertrofia
+	Dias       int     `json:"dias"`        // Ex: 3, 5
 	Divisao    string  `json:"divisao"`     // Ex: A, B, C
 	Exercicios []int64 `json:"exercicios"`  // IDs dos exercícios vinculados
 }
 
-// CriarTreino cadastra um novo treino e relaciona os exercícios
+// CriarTreino cadastra um novo treino no banco e relaciona com exercícios
 func CriarTreino(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var novoTreino NovoTreino
 
-		// 🔎 Decodifica o JSON recebido no corpo da requisição
+		// 🔎 Decodifica o JSON enviado na requisição
 		if err := json.NewDecoder(r.Body).Decode(&novoTreino); err != nil {
 			http.Error(w, "JSON inválido", http.StatusBadRequest)
 			return
 		}
 
-		// 🔐 Inicia uma transação para garantir atomicidade
+		// 🔐 Inicia uma transação para garantir integridade
 		tx, err := db.Begin()
 		if err != nil {
 			http.Error(w, "Erro ao iniciar transação", http.StatusInternalServerError)
@@ -45,7 +45,7 @@ func CriarTreino(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// 🔄 Obtém o ID do treino recém-criado
+		// 🔄 Recupera o ID do treino recém-criado
 		treinoID, err := res.LastInsertId()
 		if err != nil {
 			tx.Rollback()
@@ -53,7 +53,7 @@ func CriarTreino(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// 🔗 Relaciona os exercícios ao treino
+		// 🔗 Relaciona os exercícios com o treino
 		for _, exercicioID := range novoTreino.Exercicios {
 			_, err := tx.Exec(`
 				INSERT INTO treino_exercicios (treino_id, exercicio_id)
@@ -65,13 +65,13 @@ func CriarTreino(db *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		// ✅ Finaliza a transação com sucesso
+		// ✅ Finaliza a transação
 		if err := tx.Commit(); err != nil {
-			http.Error(w, "Erro ao finalizar transação", http.StatusInternalServerError)
+			http.Error(w, "Erro ao salvar treino", http.StatusInternalServerError)
 			return
 		}
 
-		// 📨 Resposta de sucesso com o ID do treino criado
+		// 📤 Envia resposta de sucesso com o ID do treino
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{
 			"mensagem":  "Treino criado com sucesso",
