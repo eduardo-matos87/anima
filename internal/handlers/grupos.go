@@ -6,13 +6,13 @@ import (
     "net/http"
 )
 
-// GrupoMuscular representa um grupo muscular cadastrado no banco
+// GrupoMuscular representa um grupo muscular cadastrado.
 type GrupoMuscular struct {
     ID   int64  `json:"id"`
     Nome string `json:"nome"`
 }
 
-// ListarGruposMusculares consulta e retorna todos os grupos musculares cadastrados.
+// ListarGruposMusculares consulta e retorna os grupos musculares cadastrados.
 func ListarGruposMusculares(db *sql.DB) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         rows, err := db.Query("SELECT id, nome FROM grupos_musculares ORDER BY id")
