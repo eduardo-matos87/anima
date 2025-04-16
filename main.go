@@ -103,6 +103,8 @@ func main() {
 	// Swagger UI
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
+	mux.HandleFunc("/treinos", handlers.AuthMiddleware(handlers.ListarTreinos(db)))
+
 	// --------------------------------------------------------------------------
 	// START SERVER COM CORS
 	// --------------------------------------------------------------------------
