@@ -17,3 +17,6 @@ func main() {
 	fmt.Println("Servidor rodando em http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
+
+http.HandleFunc("/treino", handlers.GerarTreino(db))         // GET
+http.HandleFunc("/treino/criar", handlers.CriarTreino(db))   // POST
