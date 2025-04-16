@@ -13,104 +13,104 @@
 package main
 
 import (
-	"anima/internal/handlers"
 	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
 
-	_ "github.com/mattn/go-sqlite3"
+	"anima/internal/handlers"
+	_ "anima/docs"                    // Documentação Swagger gerada pelo swag
 	httpSwagger "github.com/swaggo/http-swagger"
-	_ "anima/docs"
-
+	_ "github.com/mattn/go-sqlite3"   // Driver SQLite3
 	logrus "github.com/sirupsen/logrus"
 )
 
-// corsMiddleware adiciona os headers CORS e responde ao OPTIONS
+// corsMiddleware adiciona cabeçalhos CORS para permitir chamadas do front‑end
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// DEBUG: de onde veio a requisição?
-		origin := r.Header.Get("Origin")
-		logrus.Debugf("CORS preflight/origin: %s %s", r.Method, origin)
+		// DEBUG: mostra a origem da requisição
+		logrus.Debugf("CORS %s request from %s", r.Method, r.Header.Get("Origin"))
 
-		// Para dev, libera todas as origens:
+		// Permite todas as origens (use '*' apenas em dev)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		// Se quiser restringir apenas ao React, use:
-		// w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-
+		// Métodos permitidos
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		// Cabeçalhos permitidos
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-		// Se for preflight OPTIONS, retorna OK imediatamente
+		// Se for preflight, responde OK imediatamente
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
-		// Caso contrário, siga para o handler real
+		// Caso contrário, chama o próximo handler
 		next.ServeHTTP(w, r)
 	})
 }
 
 func main() {
-	// --------------------------------------------------------------------------
-	// CONFIGURAÇÃO DE LOG (DEBUG)
-	// --------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
+	// 1) CONFIGURAÇÃO DE LOG (modo DEBUG)
+	// ----------------------------------------------------------------------------
 	logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
 	logrus.SetLevel(logrus.DebugLevel)
 
 	const logFile = "/var/log/anima.log"
 	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		logrus.Warnf("não foi possível abrir %s, usando stderr: %v", logFile, err)
+		logrus.Warnf("Não foi possível abrir %s, usando stderr: %v", logFile, err)
 	} else {
-		logrus.Infof("registrando logs em %s", logFile)
+		logrus.Infof("Registrando logs em %s", logFile)
 		logrus.SetOutput(f)
 	}
 
-	// --------------------------------------------------------------------------
-	// CONEXÃO COM O BANCO DE DADOS
-	// --------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
+	// 2) CONEXÃO COM O BANCO DE DADOS
+	// ----------------------------------------------------------------------------
 	db, err := sql.Open("sqlite3", "./anima.db")
 	if err != nil {
 		logrus.Fatal("Erro ao conectar no banco de dados:", err)
 	}
 	defer db.Close()
 
-	// --------------------------------------------------------------------------
-	// REGISTRO DE ROTAS
-	// --------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
+	// 3) CONFIGURAÇÃO DE ROTAS / ENDPOINTS
+	// ----------------------------------------------------------------------------
 	mux := http.NewServeMux()
 
-	// Health-check
+	// Health‑check (GET /ping)
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "pong")
 	})
 
 	// Treinos
+	// GET  /treino         → Gera treino pontual
 	mux.HandleFunc("/treino", handlers.GerarTreino(db))
+	// POST /treino/criar   → Cria novo treino (protegido por JWT)
 	mux.HandleFunc("/treino/criar", handlers.AuthMiddleware(handlers.CriarTreino(db)))
+	// GET  /treinos        → Lista todos os treinos cadastrados (protegido)
+	mux.HandleFunc("/treinos", handlers.AuthMiddleware(handlers.ListarTreinos(db)))
 
-	// Consultas
-	mux.HandleFunc("/exercicios", handlers.ListarExercicios(db))
-	mux.HandleFunc("/objetivos", handlers.ListarObjetivos(db))
-	mux.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))
+	// Consultas auxiliares
+	mux.HandleFunc("/exercicios", handlers.ListarExercicios(db))         // GET /exercicios?grupo=
+	mux.HandleFunc("/objetivos", handlers.ListarObjetivos(db))           // GET /objetivos
+	mux.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))       // GET /grupos
 
 	// Usuário
-	mux.HandleFunc("/register", handlers.RegisterUser(db))
-	mux.HandleFunc("/login", handlers.LoginUser(db))
+	mux.HandleFunc("/register", handlers.RegisterUser(db))               // POST /register
+	mux.HandleFunc("/login", handlers.LoginUser(db))                     // POST /login
 
 	// Swagger UI
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
-	mux.HandleFunc("/treinos", handlers.AuthMiddleware(handlers.ListarTreinos(db)))
-
-	// --------------------------------------------------------------------------
-	// START SERVER COM CORS
-	// --------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
+	// 4) INICIALIZAÇÃO DO SERVIDOR COM CORS
+	// ----------------------------------------------------------------------------
 	handler := corsMiddleware(mux)
+
 	logrus.Info("Servidor rodando em http://localhost:8080")
 	if err := http.ListenAndServe(":8080", handler); err != nil {
-		logrus.Fatal("ListenAndServe:", err)
+		logrus.Fatal("Erro ao iniciar servidor:", err)
 	}
 }
