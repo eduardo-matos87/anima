@@ -1,23 +1,25 @@
 // Arquivo: anima-frontend/src/pages/DashboardPage.js
 
 import React, { useEffect, useState } from 'react';
-import api from '../api';
+-import api from '../api';
++import api from '../api';
++import { useHistory, Link } from 'react-router-dom';
 
 export default function DashboardPage() {
   const [treinos, setTreinos] = useState([]);
++ const history = useHistory();
 
-  // Busca treinos ao montar o componente
   useEffect(() => {
     const fetchTreinos = async () => {
       try {
         const resp = await api.get('/treinos');
         setTreinos(resp.data);
-      } catch (err) {
-        console.error('Erro ao listar treinos:', err);
+      } catch {
+        history.push('/login');
       }
     };
     fetchTreinos();
-  }, []);
+  }, [history]);
 
   const createTreino = async () => {
     try {
@@ -28,17 +30,21 @@ export default function DashboardPage() {
         divisao: 'A',
         exercicios: [1, 2, 11],
       });
-      // recarrega lista depois de criar
       const resp = await api.get('/treinos');
       setTreinos(resp.data);
-    } catch (err) {
-      console.error('Erro ao criar treino:', err);
+    } catch {
+      alert('Erro ao criar treino');
     }
   };
 
   return (
     <div style={{ padding: 20 }}>
       <h1>Painel de Treinos</h1>
++     {/* Link para logout */}
++     <div style={{ float: 'right' }}>
++       <Link to="/logout">Sair</Link>
++     </div>
+
       <button onClick={createTreino}>Criar Treino</button>
       <h2 style={{ marginTop: 20 }}>Seus Treinos</h2>
       {treinos.length === 0 && <p>Você ainda não tem treinos.</p>}
