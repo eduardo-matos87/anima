@@ -1,145 +1,91 @@
 // Arquivo: anima-frontend/src/App.js
 
 import React, { useState } from 'react';
-import api from './api';    // Instância do Axios configurada em src/api.js
-import './App.css';         // Seus estilos globais
+import api from './api';
+import './App.css';
+import RegisterComponent from './RegisterComponent';  // importamos o registro
+import LoginComponent from './LoginComponent';        // seu componente de login
 
 /**
- * Componente principal da aplicação Anima Front‑End.
- * Gerencia o login do usuário, criação de treino protegido e listagem de treinos.
+ * Componente principal que alterna entre Registro e Login
+ * e, após autenticação, exibe o painel de criação/listagem de treinos.
  */
 function App() {
-  // 📧 State para armazenar o e‑mail digitado
-  const [loginEmail, setLoginEmail] = useState("");
-  // 🔒 State para armazenar a senha digitada
-  const [loginPassword, setLoginPassword] = useState("");
-  // ⚠️ State para exibir mensagens de erro (login ou criação de treino)
-  const [errorMessage, setErrorMessage] = useState("");
-  // 📈 State para armazenar a resposta do endpoint /treino/criar
-  const [treinoData, setTreinoData] = useState(null);
-  // 📊 State para armazenar a lista de treinos retornada pelo backend
-  const [treinos, setTreinos] = useState([]);
+  // controla qual tela está ativa: 'register', 'login' ou 'dashboard'
+  const [stage, setStage] = useState<'register'|'login'|'dashboard'>('login');
+  // token para saber se está logado
+  const [token, setToken] = useState<string | null>(localStorage.getItem('jwt'));
+  // estados de treino (para dashboard)
+  const [treinoData, setTreinoData] = useState<any>(null);
+  const [treinos, setTreinos] = useState<any[]>([]);
 
-  /**
-   * loginUser → Faz POST /login com email e senha.
-   * Salva o token JWT no localStorage se for bem‑sucedido.
-   */
-  const loginUser = async () => {
-    console.log("🔍 Payload login:", { email: loginEmail, password: loginPassword });
-    try {
-      const response = await api.post(
-        "/login",
-        { email: loginEmail, password: loginPassword },
-        { headers: { "Content-Type": "application/json" } }
-      );
-      localStorage.setItem("jwt", response.data.token);
-      setErrorMessage("");
-      alert("✅ Login realizado com sucesso!");
-    } catch (err) {
-      console.error("❌ Erro no login:", err);
-      setErrorMessage("Falha no login. Verifique suas credenciais.");
-    }
+  // Callback quando o login é bem‑sucedido
+  const onLoginSuccess = (jwt: string) => {
+    localStorage.setItem('jwt', jwt);
+    setToken(jwt);
+    setStage('dashboard');
   };
 
-  /**
-   * createTreino → Faz POST /treino/criar (endpoint protegido).
-   * O interceptor de api.js anexa o JWT automaticamente.
-   */
+  // Função para criar treino (igual antes)
   const createTreino = async () => {
     try {
-      const response = await api.post("/treino/criar", {
+      const resp = await api.post('/treino/criar', {
         nivel: "iniciante",
         objetivo: "emagrecimento",
         dias: 3,
         divisao: "A",
-        exercicios: [1, 2, 11],
+        exercicios: [1,2,11],
       });
-      setTreinoData(response.data);
-      setErrorMessage("");
+      setTreinoData(resp.data);
     } catch (err) {
-      console.error("❌ Erro ao criar treino:", err);
-      setErrorMessage("Erro ao criar treino. Está autenticado?");
+      console.error(err);
     }
   };
 
-  /**
-   * fetchTreinos → Faz GET /treinos (endpoint protegido).
-   * Atualiza o state com o array de treinos detalhados.
-   */
+  // Função para listar treinos
   const fetchTreinos = async () => {
     try {
-      const response = await api.get("/treinos");
-      setTreinos(response.data);
+      const resp = await api.get('/treinos');
+      setTreinos(resp.data);
     } catch (err) {
-      console.error("❌ Erro ao listar treinos:", err);
-      setErrorMessage("Erro ao carregar treinos. Está autenticado?");
+      console.error(err);
     }
   };
 
+  // Se não está autenticado, mostra registro ou login
+  if (!token) {
+    return (
+      <div className="App" style={{ padding: 20, fontFamily: 'Arial' }}>
+        <h1>Anima App</h1>
+        <nav style={{ marginBottom: 20 }}>
+          <button onClick={() => setStage('login')} disabled={stage==='login'}>Login</button>
+          <button onClick={() => setStage('register')} disabled={stage==='register'}>Registrar</button>
+        </nav>
+
+        {stage === 'login' && <LoginComponent onSuccess={onLoginSuccess} />}
+        {stage === 'register' && <RegisterComponent />}
+      </div>
+    );
+  }
+
+  // Se estiver logado, mostra o dashboard de treinos
   return (
-    <div className="App" style={{ padding: 20, fontFamily: 'Arial, sans-serif' }}>
-      <h1>Anima Front‑End</h1>
+    <div className="App" style={{ padding: 20, fontFamily: 'Arial' }}>
+      <h1>Painel de Treinos</h1>
+      <button onClick={createTreino}>Criar Treino</button>
+      {treinoData && <pre>{JSON.stringify(treinoData, null, 2)}</pre>}
 
-      {/* === Seção de Login === */}
-      <section style={{ marginBottom: 40 }}>
-        <h2>Login</h2>
-        <input
-          type="email"
-          placeholder="Email"
-          value={loginEmail}
-          onChange={e => setLoginEmail(e.target.value)}
-          style={{ marginRight: 10, padding: 8 }}
-        />
-        <input
-          type="password"
-          placeholder="Senha"
-          value={loginPassword}
-          onChange={e => setLoginPassword(e.target.value)}
-          style={{ marginRight: 10, padding: 8 }}
-        />
-        <button type="button" onClick={loginUser} style={{ padding: '8px 16px' }}>
-          Entrar
-        </button>
-        {errorMessage && (
-          <p style={{ color: 'red', marginTop: 10 }}>{errorMessage}</p>
-        )}
-      </section>
+      <hr style={{ margin: '20px 0' }} />
 
-      {/* === Seção de Criação de Treino === */}
-      <section style={{ marginBottom: 40 }}>
-        <h2>Criar Treino (Requer login)</h2>
-        <button type="button" onClick={createTreino} style={{ padding: '8px 16px' }}>
-          Criar Treino
-        </button>
-        {treinoData && (
-          <pre style={{ background: '#f4f4f4', padding: 10, marginTop: 20 }}>
-            {JSON.stringify(treinoData, null, 2)}
-          </pre>
-        )}
-      </section>
-
-      {/* === Seção de Listagem de Treinos === */}
-      <section>
-        <h2>Seus Treinos</h2>
-        <button type="button" onClick={fetchTreinos} style={{ padding: '8px 16px' }}>
-          Carregar Treinos
-        </button>
-        {treinos.length > 0 && treinos.map(t => (
-          <div
-            key={t.id}
-            style={{
-              border: '1px solid #ccc',
-              borderRadius: 4,
-              padding: 10,
-              marginTop: 10
-            }}
-          >
-            <strong>{t.divisao} – {t.nivel} / {t.objetivo}</strong><br/>
-            Dias: {t.dias}<br/>
-            Exercícios: {t.exercicios.join(', ')}
-          </div>
-        ))}
-      </section>
+      <h2>Seus Treinos</h2>
+      <button onClick={fetchTreinos}>Carregar Treinos</button>
+      {treinos.map(t => (
+        <div key={t.id} style={{ border: '1px solid #ccc', padding: 10, marginTop: 10 }}>
+          <strong>{t.divisao} – {t.nivel} / {t.objetivo}</strong><br/>
+          Dias: {t.dias}<br/>
+          Exercícios: {t.exercicios.join(', ')}
+        </div>
+      ))}
     </div>
   );
 }
