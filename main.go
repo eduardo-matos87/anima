@@ -17,20 +17,20 @@ import (
 	"log"
 	"net/http"
 
-	_ "github.com/mattn/go-sqlite3"       // Driver do SQLite
-	httpSwagger "github.com/swaggo/http-swagger" // Swagger UI handler
-	_ "anima/docs"                       // Importa a documentação gerada pelo swag
+	_ "github.com/mattn/go-sqlite3"              // Driver do SQLite
+	httpSwagger "github.com/swaggo/http-swagger" // Handler para Swagger UI
+	_ "anima/docs"                              // Importa a documentação gerada pelo swag
 )
 
 func main() {
-	// 🔌 Conectando ao banco de dados SQLite
+	// 🔌 Conecta ao banco SQLite (arquivo anima.db na raiz)
 	db, err := sql.Open("sqlite3", "./anima.db")
 	if err != nil {
 		log.Fatal("Erro ao conectar no banco de dados:", err)
 	}
 	defer db.Close()
 
-	// 🌐 Rota de teste para verificar se o servidor está online
+	// 🌐 Rota de teste: /ping
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "pong")
 	})
@@ -49,7 +49,7 @@ func main() {
 	// @Success 200 {object} handlers.RespostaTreino
 	// @Failure 500 {object} map[string]string
 	// @Router /treino [get]
-	http.HandleFunc("/treino", handlers.GerarTreino(db))
+	http.HandleFunc("/treino", handlers.GerarTreino(db)) // GET para consultar treinos
 
 	// @Summary Cria um novo treino
 	// @Description Cadastra um novo treino e vincula os exercícios.
@@ -61,47 +61,46 @@ func main() {
 	// @Failure 400 {object} map[string]string
 	// @Failure 500 {object} map[string]string
 	// @Router /treino/criar [post]
-	http.HandleFunc("/treino/criar", handlers.CriarTreino(db))
+	http.HandleFunc("/treino/criar", handlers.CriarTreino(db)) // POST para criar treino
 
 	// -----------------------------------------------------------------------------
 	// Endpoints de Exercícios, Objetivos e Grupos
 	// -----------------------------------------------------------------------------
-
-	// @Summary Lista os exercícios de um grupo muscular
-	// @Description Retorna a lista de exercícios filtrados pelo grupo.
-	// @Tags Exercícios
-	// @Produce json
-	// @Param grupo query string true "Nome do grupo muscular"
-	// @Success 200 {array} handlers.Exercicio
-	// @Router /exercicios [get]
+	// (Assumindo que esses handlers foram implementados em outros arquivos)
 	http.HandleFunc("/exercicios", handlers.ListarExercicios(db))
-
-	// @Summary Lista os objetivos
-	// @Description Retorna a lista de objetivos cadastrados.
-	// @Tags Objetivos
-	// @Produce json
-	// @Success 200 {array} handlers.Objetivo
-	// @Router /objetivos [get]
 	http.HandleFunc("/objetivos", handlers.ListarObjetivos(db))
-
-	// @Summary Lista os grupos musculares
-	// @Description Retorna a lista de grupos musculares cadastrados.
-	// @Tags Grupos
-	// @Produce json
-	// @Success 200 {array} handlers.GrupoMuscular
-	// @Router /grupos [get]
 	http.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))
 
 	// -----------------------------------------------------------------------------
-	// Rota para a Documentação Swagger
+	// Endpoints de Usuário: Registro e Login
 	// -----------------------------------------------------------------------------
-	// A documentação Swagger será servida em http://localhost:8080/swagger/index.html
+	// @Summary Registra um novo usuário
+	// @Description Cria um usuário com nome, email e senha.
+	// @Tags User
+	// @Accept json
+	// @Produce json
+	// @Param user body handlers.Credentials true "Dados de registro"
+	// @Success 201 {object} map[string]interface{}
+	// @Router /register [post]
+	http.HandleFunc("/register", handlers.RegisterUser(db))
+
+	// @Summary Login de usuário
+	// @Description Autentica o usuário e retorna um token JWT.
+	// @Tags User
+	// @Accept json
+	// @Produce json
+	// @Param credentials body handlers.Credentials true "Dados de login"
+	// @Success 200 {object} map[string]string
+	// @Router /login [post]
+	http.HandleFunc("/login", handlers.LoginUser(db))
+
+	// -----------------------------------------------------------------------------
+	// Rota para Documentação Swagger
+	// -----------------------------------------------------------------------------
+	// Acesse a documentação em: http://localhost:8080/swagger/index.html
 	http.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	// 🚀 Inicia o servidor na porta 8080
 	fmt.Println("Servidor rodando em http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
-
-	http.HandleFunc("/login", handlers.LoginUser(db))
-
 }
