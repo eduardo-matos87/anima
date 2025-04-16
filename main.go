@@ -13,19 +13,19 @@
 package main
 
 import (
-	"database/sql"                             // Banco de dados
-	"fmt"                                      // Imprimir textos
-	"net/http"                                 // HTTP server
-	"os"                                       // Acesso a arquivos
+	"database/sql"
+	"fmt"
+	"net/http"
+	"os"
 
-	"anima/internal/handlers"                  // Handlers da sua aplicação
-	_ "anima/docs"                             // Documentação Swagger (gerada pelo swag)
+	"anima/internal/handlers"                  // Handlers da aplicação
+	_ "anima/docs"                             // Swagger docs
 	httpSwagger "github.com/swaggo/http-swagger"
 	_ "github.com/mattn/go-sqlite3"            // Driver SQLite3
 	logrus "github.com/sirupsen/logrus"        // Log avançado
 )
 
-// corsMiddleware adiciona os headers CORS e responde OPTIONS automaticamente
+// corsMiddleware adiciona headers CORS e responde OPTIONS
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logrus.Debugf("CORS %s from %s", r.Method, r.Header.Get("Origin"))
@@ -41,10 +41,9 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
-	// --- 1) CONFIGURAÇÃO DE LOG ---
+	// 1) Log em modo DEBUG
 	logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
 	logrus.SetLevel(logrus.DebugLevel)
-
 	const logFile = "/var/log/anima.log"
 	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -54,14 +53,14 @@ func main() {
 		logrus.SetOutput(f)
 	}
 
-	// --- 2) CONEXÃO COM BANCO ---
+	// 2) Conecta ao banco SQLite
 	db, err := sql.Open("sqlite3", "./anima.db")
 	if err != nil {
 		logrus.Fatal("Erro ao conectar no banco de dados:", err)
 	}
 	defer db.Close()
 
-	// --- 3) CONFIGURAÇÃO DE ROTAS ---
+	// 3) Configuração de rotas
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "pong")
@@ -76,7 +75,7 @@ func main() {
 	mux.HandleFunc("/login", handlers.LoginUser(db))
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
-	// --- 4) INICIA O SERVIDOR COM CORS ---
+	// 4) Inicia servidor com CORS
 	handler := corsMiddleware(mux)
 	logrus.Info("Servidor rodando em http://localhost:8080")
 	if err := http.ListenAndServe(":8080", handler); err != nil {
