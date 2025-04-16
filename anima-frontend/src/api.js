@@ -3,16 +3,14 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8080',      // Sua API Go está rodando aqui
+  // Troque localhost por seu IP na rede local
+  baseURL: 'http://192.168.173.249:8080',
   headers: { 'Content-Type': 'application/json' }
 });
 
-// Interceptor para anexar o JWT em todas as requisições
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('jwt');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
