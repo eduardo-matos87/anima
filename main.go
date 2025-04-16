@@ -11,58 +11,59 @@
 package main
 
 import (
-	"anima/internal/handlers"             // Pacote com os handlers (rotas) da API
-	"database/sql"                        // Pacote para conexão e manipulação de banco de dados SQL
-	"fmt"                                 // Pacote para formatação de strings e impressão
-	"log"                                 // Pacote padrão para log (usado além do Logrus para tratamento fatal)
-	"net/http"                            // Pacote para criação do servidor HTTP
-	"os"                                  // Pacote para interação com o sistema operacional
+	"anima/internal/handlers"            // Pacote com os handlers (funções de endpoint)
+	"database/sql"                       // Manipulação de banco de dados SQL
+	"fmt"                                // Formatação e impressão de strings
+	"log"                                // Log padrão para erros fatais
+	"net/http"                           // Servidor HTTP
+	"os"                                 // Interação com o sistema operacional
 
-	// Importa o driver SQLite3 para conexão com o banco
+	// Importa o driver SQLite3 para manipulação do banco de dados
 	_ "github.com/mattn/go-sqlite3"
-
-	// Swagger UI para servir a documentação gerada
+	
+	// Importa o Swagger UI para servir a documentação
 	httpSwagger "github.com/swaggo/http-swagger"
-	_ "anima/docs"                        // Importa a documentação gerada pelo swag (Swagger)
+	_ "anima/docs"                       // Importa a documentação gerada pelo swag
 
-	// Logrus para log avançado e customizado
+	// Logrus para logging avançado
 	logrus "github.com/sirupsen/logrus"
 )
 
 func main() {
-	// -----------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
 	// Configuração do Logrus para registro de logs
-	// -----------------------------------------------------------------------------
-	// Define o formato dos logs para incluir o timestamp completo
+	// ----------------------------------------------------------------------------
+	// Define o formato para incluir timestamps completos.
 	logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-
-	// Tenta abrir (ou criar) o arquivo de log "anima.log" para persistência de logs
-	file, err := os.OpenFile("anima.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		// Se aberto com sucesso, redireciona as saídas de log para esse arquivo
-		logrus.SetOutput(file)
+	
+	// Define o caminho do arquivo de log. Certifique-se de ter permissões para escrever em /var/log.
+	logFilePath := "/var/log/anima.log"
+	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// Se não for possível abrir o arquivo, registra a informação e utiliza o stderr.
+		logrus.Info("Falha ao abrir /var/log/anima.log, utilizando stderr: ", err)
 	} else {
-		// Caso contrário, registra um aviso e utiliza o stderr padrão
-		logrus.Info("Falha ao abrir o arquivo de log, usando stderr")
+		// Redireciona os logs para o arquivo aberto.
+		logrus.SetOutput(file)
 	}
 
-	// -----------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
 	// Conexão com o Banco de Dados SQLite
-	// -----------------------------------------------------------------------------
-	// Abre a conexão com o arquivo de banco de dados "anima.db" que deve estar na raiz do projeto
+	// ----------------------------------------------------------------------------
+	// Abre o arquivo de banco de dados "anima.db", que deve estar na raiz do projeto.
 	db, err := sql.Open("sqlite3", "./anima.db")
 	if err != nil {
 		logrus.Fatal("Erro ao conectar no banco de dados:", err)
 	}
-	// Garante que a conexão será fechada ao término da execução do programa
+	// Garante que a conexão será fechada quando o main terminar.
 	defer db.Close()
 
-	// -----------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
 	// Configuração dos Endpoints (Rotas) da API
-	// -----------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
 
 	// Rota de teste para verificar se o servidor está ativo.
-	// Acessando /ping, o servidor responde com "pong".
+	// Quando acessado, retorna "pong".
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "pong")
 	})
@@ -71,65 +72,54 @@ func main() {
 	// Endpoints de Treino
 	// ----------------------------
 
-	// GET /treino
-	// Busca treinos com base no "nivel" e "objetivo" passados via query string.
+	// GET /treino:
+	// Busca e retorna treinos com base no "nivel" e "objetivo" passados como query string.
 	http.HandleFunc("/treino", handlers.GerarTreino(db))
 
-	// POST /treino/criar
-	// Cria um novo treino e relaciona com os exercícios fornecidos.
-	// Essa rota é protegida: somente será executada se o token JWT enviado no header for válido.
+	// POST /treino/criar:
+	// Cria um novo treino e vincula os exercícios.
+	// Esse endpoint é protegido; utiliza o middleware de autenticação.
 	http.HandleFunc("/treino/criar", handlers.AuthMiddleware(handlers.CriarTreino(db)))
 
 	// ----------------------------
-	// Endpoints de Exercícios, Objetivos e Grupos Musculares
+	// Endpoints para Consultas de Dados
 	// ----------------------------
 
-	// GET /exercicios
-	// Lista os exercícios filtrados, de acordo com o grupo muscular (ex.: /exercicios?grupo=peito)
+	// GET /exercicios:
+	// Lista os exercícios filtrados por grupo muscular (ex: /exercicios?grupo=peito).
 	http.HandleFunc("/exercicios", handlers.ListarExercicios(db))
 
-	// GET /objetivos
-	// Retorna a lista de objetivos cadastrados no banco (ex.: Emagrecimento, Ganho de massa magra, Resistência física)
+	// GET /objetivos:
+	// Retorna a lista de objetivos cadastrados (ex: Emagrecimento, Ganho de massa magra, Resistência física).
 	http.HandleFunc("/objetivos", handlers.ListarObjetivos(db))
 
-	// GET /grupos
-	// Retorna a lista de grupos musculares (ex.: Peito, Costas, Pernas, etc.)
+	// GET /grupos:
+	// Retorna a lista de grupos musculares cadastrados (ex: Peito, Costas, Pernas, etc.).
 	http.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))
 
 	// ----------------------------
 	// Endpoints de Usuário: Registro e Login
 	// ----------------------------
 
-	// POST /register
-	// Registra um novo usuário fornecendo nome, email e senha.
+	// POST /register:
+	// Registra um novo usuário com nome, email e senha.
 	http.HandleFunc("/register", handlers.RegisterUser(db))
 
-	// POST /login
-	// Autentica o usuário e, se os dados estiverem corretos, retorna um token JWT.
+	// POST /login:
+	// Autentica o usuário e retorna um token JWT se os dados estiverem corretos.
 	http.HandleFunc("/login", handlers.LoginUser(db))
 
-	// (Opcional) Você pode adicionar um endpoint para ver os logs da aplicação
-	// Exemplo: http.HandleFunc("/logs", handlers.LogsHandler())
-
 	// ----------------------------
-	// Endpoint para Documentação Swagger
+	// Rota para Documentação Swagger
 	// ----------------------------
 	// A documentação gerada pelo swag ficará disponível em:
 	// http://localhost:8080/swagger/index.html
 	http.Handle("/swagger/", httpSwagger.WrapHandler)
 
-	// Logs 
-	http.HandleFunc("/register", handlers.RegisterUser(db))
-	http.HandleFunc("/login", handlers.LoginUser(db))
-	
-	// -----------------------------------------------------------------------------
+	// ----------------------------------------------------------------------------
 	// Inicialização do Servidor HTTP
-	// -----------------------------------------------------------------------------
-	// Exibe uma mensagem informativa no console e inicia o servidor na porta 8080.
+	// ----------------------------------------------------------------------------
+	// Exibe uma mensagem de inicialização e inicia o servidor na porta 8080.
 	fmt.Println("Servidor rodando em http://localhost:8080")
-	err = http.ListenAndServe(":8080", nil)
-	if err != nil {
-		// Se ocorrer um erro durante a inicialização do servidor, registra o erro e encerra a aplicação.
-		logrus.Fatal("Erro ao iniciar o servidor:", err)
-	}
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
