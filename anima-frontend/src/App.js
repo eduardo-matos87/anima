@@ -11,24 +11,36 @@ import {
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
+import LogoutPage from './pages/LogoutPage';
 
 function App() {
-  const isLogged = !!localStorage.getItem('jwt');
+  const isLogged = () => !!localStorage.getItem('jwt');
 
   return (
     <Router>
       <Switch>
+        <Route exact path="/">
+          {isLogged() ? <Redirect to="/dashboard" /> : <Redirect to="/login" />}
+        </Route>
+
         <Route path="/login">
-          {isLogged ? <Redirect to="/dashboard" /> : <LoginPage />}
+          {isLogged() ? <Redirect to="/dashboard" /> : <LoginPage />}
         </Route>
+
         <Route path="/register">
-          {isLogged ? <Redirect to="/dashboard" /> : <RegisterPage />}
+          {isLogged() ? <Redirect to="/dashboard" /> : <RegisterPage />}
         </Route>
+
+        <Route path="/logout">
+          <LogoutPage />
+        </Route>
+
         <Route path="/dashboard">
-          {isLogged ? <DashboardPage /> : <Redirect to="/login" />}
+          {isLogged() ? <DashboardPage /> : <Redirect to="/login" />}
         </Route>
+
         <Route path="*">
-          <Redirect to="/login" />
+          <Redirect to="/" />
         </Route>
       </Switch>
     </Router>
