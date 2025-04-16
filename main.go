@@ -34,6 +34,11 @@ func main() {
 	http.HandleFunc("/objetivos", handlers.ListarObjetivos(db))       // GET /objetivos
 	http.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))     // GET /grupos
 
+	// 📌 Novos Endpoints para cadastro e login 
+	
+	http.HandleFunc("/register", handlers.RegisterUser(db)) // para cadastro (POST)
+	http.HandleFunc("/login", handlers.LoginUser(db))         // para login (POST)
+
 	// 🚀 Inicia o servidor na porta 8080
 	fmt.Println("Servidor rodando em http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
