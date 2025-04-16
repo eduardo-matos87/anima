@@ -1,16 +1,12 @@
 package main
 
 import (
-	// Importa os handlers da API
 	"anima/internal/handlers"
-
-	// Pacotes padrão
 	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 
-	// Driver do SQLite
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -20,21 +16,23 @@ func main() {
 	if err != nil {
 		log.Fatal("Erro ao conectar no banco de dados:", err)
 	}
-	defer db.Close() // Garante que o banco será fechado ao final
+	defer db.Close()
 
-	// 🌐 Rota de teste (ping)
+	// 🌐 Rota de teste: /ping
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "pong")
 	})
 
-	// 📥 Rota GET para buscar treinos com base em nível e objetivo
-	http.HandleFunc("/treino", handlers.GerarTreino(db))
+	// 📥 Endpoints para treinos
+	http.HandleFunc("/treino", handlers.GerarTreino(db))         // GET
+	http.HandleFunc("/treino/criar", handlers.CriarTreino(db))     // POST
 
-	// 📤 Rota POST para cadastrar um novo treino com exercícios
-	http.HandleFunc("/treino/criar", handlers.CriarTreino(db))
+	// 📋 Endpoint para listar exercícios (já existente)
+	http.HandleFunc("/exercicios", handlers.ListarExercicios(db))   // GET
 
-	// 🧠 Rota GET para listar exercícios por grupo muscular (ex: /exercicios?grupo=peito)
-	http.HandleFunc("/exercicios", handlers.ListarExercicios(db))
+	// 📌 Novos Endpoints para consulta de dados
+	http.HandleFunc("/objetivos", handlers.ListarObjetivos(db))       // GET /objetivos
+	http.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))     // GET /grupos
 
 	// 🚀 Inicia o servidor na porta 8080
 	fmt.Println("Servidor rodando em http://localhost:8080")
