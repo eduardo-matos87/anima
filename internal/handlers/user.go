@@ -1,8 +1,12 @@
+// Arquivo: anima/internal/handlers/user.go
+
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
@@ -11,22 +15,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// jwtKey é a chave secreta para assinatura do token JWT.
-// Em produção, guarde este valor em uma variável de ambiente com um valor forte.
+// jwtKey é a chave secreta usada para assinar os tokens JWT.
+// Em produção, carregue-a de uma variável de ambiente.
 var jwtKey = []byte("minha_chave_secreta_muito_forte")
 
-// Credentials representa os dados de login e registro do usuário.
+// Credentials representa os dados de login ou registro do usuário.
 type Credentials struct {
-	// Name é utilizado somente no registro.
-	Name string `json:"name,omitempty"`
-	// Email do usuário para cadastro ou login.
-	Email string `json:"email"`
-	// Password é a senha do usuário.
+	Name     string `json:"name,omitempty"` // só usado no registro
+	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-// User representa a estrutura de um usuário armazenado no banco.
-// A propriedade Password não é exposta no JSON.
+// User representa o usuário armazenado no banco.
 type User struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
@@ -34,116 +34,130 @@ type User struct {
 	Password string `json:"-"`
 }
 
-// Claims define as informações que serão incluídas no token JWT.
+// Claims representa as claims do JWT.
 type Claims struct {
 	ID    int64  `json:"id"`
 	Email string `json:"email"`
 	jwt.RegisteredClaims
 }
 
-// RegisterUser trata o cadastro de um novo usuário.
-// Ele espera um JSON com Name, Email e Password e insere o usuário no banco.
+// RegisterUser cadastra um novo usuário.
 func RegisterUser(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var creds Credentials
+		// 1) Lê todo o body para debug
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			logrus.Errorf("RegisterUser: falha ao ler body: %v", err)
+			http.Error(w, "Erro interno", http.StatusInternalServerError)
+			return
+		}
+		logrus.Debugf("RegisterUser body raw: %s", string(raw))
+		// Reconstrói r.Body para o decoder
+		r.Body = io.NopCloser(bytes.NewBuffer(raw))
 
-		// Decodifica os dados enviados no corpo da requisição.
+		// 2) Decodifica JSON
+		var creds Credentials
 		if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-			logrus.Error("Erro ao decodificar JSON para registro: ", err)
+			logrus.Errorf("RegisterUser: JSON inválido: %v", err)
 			http.Error(w, "JSON inválido", http.StatusBadRequest)
 			return
 		}
 
-		// Gera o hash da senha usando bcrypt.
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(creds.Password), bcrypt.DefaultCost)
+		// 3) Gera hash da senha
+		hashed, err := bcrypt.GenerateFromPassword([]byte(creds.Password), bcrypt.DefaultCost)
 		if err != nil {
-			logrus.Error("Erro ao gerar hash da senha: ", err)
-			http.Error(w, "Erro ao processar a senha", http.StatusInternalServerError)
+			logrus.Errorf("RegisterUser: bcrypt error: %v", err)
+			http.Error(w, "Erro interno", http.StatusInternalServerError)
 			return
 		}
 
-		// Insere o novo usuário na tabela "users".
-		result, err := db.Exec("INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-			creds.Name, creds.Email, string(hashedPassword))
+		// 4) Insere usuário no banco
+		res, err := db.Exec(
+			"INSERT INTO users(name, email, password) VALUES(?,?,?)",
+			creds.Name, creds.Email, string(hashed),
+		)
 		if err != nil {
-			logrus.Error("Erro ao inserir usuário no banco: ", err)
+			logrus.Errorf("RegisterUser: DB insert error: %v", err)
 			http.Error(w, "Erro ao registrar usuário", http.StatusInternalServerError)
 			return
 		}
 
-		// Obtém o ID do usuário recém-criado.
-		userID, err := result.LastInsertId()
-		if err != nil {
-			logrus.Error("Erro ao obter ID do usuário: ", err)
-			http.Error(w, "Erro ao registrar usuário", http.StatusInternalServerError)
-			return
-		}
+		id, _ := res.LastInsertId()
+		logrus.Infof("RegisterUser: usuário criado, email=%s, id=%d", creds.Email, id)
 
-		// Retorna o resultado do registro.
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"mensagem": "Usuário registrado com sucesso",
-			"user_id":  userID,
+			"user_id":  id,
 		})
 	}
 }
 
-// LoginUser autentica o usuário com base em Email e Password.
-// Se os dados estiverem corretos, gera e retorna um token JWT válido por 24 horas.
+// LoginUser autentica o usuário e retorna um JWT.
 func LoginUser(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var creds Credentials
+		// 1) Lê e loga o body para debug
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			logrus.Errorf("LoginUser: falha ao ler body: %v", err)
+			http.Error(w, "Erro interno", http.StatusInternalServerError)
+			return
+		}
+		logrus.Debugf("LoginUser body raw: %s", string(raw))
+		// Reconstrói r.Body para o decoder
+		r.Body = io.NopCloser(bytes.NewBuffer(raw))
 
-		// Decodifica o JSON enviado na requisição de login.
+		// 2) Decodifica JSON com credenciais
+		var creds Credentials
 		if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-			logrus.Error("Erro ao decodificar JSON para login: ", err)
+			logrus.Errorf("LoginUser: JSON inválido: %v", err)
 			http.Error(w, "JSON inválido", http.StatusBadRequest)
 			return
 		}
 
-		// Busca o usuário pelo e-mail no banco de dados.
+		// 3) Busca usuário no banco
 		var user User
-		row := db.QueryRow("SELECT id, name, email, password FROM users WHERE email = ?", creds.Email)
-		err := row.Scan(&user.ID, &user.Name, &user.Email, &user.Password)
+		err = db.QueryRow(
+			"SELECT id, name, email, password FROM users WHERE email = ?",
+			creds.Email,
+		).Scan(&user.ID, &user.Name, &user.Email, &user.Password)
 		if err != nil {
-			logrus.Error("Usuário não encontrado para o e-mail ", creds.Email, ": ", err)
+			logrus.Errorf("LoginUser: usuário não encontrado, email=%s, err=%v", creds.Email, err)
 			http.Error(w, "Usuário não encontrado", http.StatusUnauthorized)
 			return
 		}
 
-		// Compara a senha fornecida com o hash armazenado.
+		// 4) Verifica senha
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
-			logrus.Error("Senha incorreta para o usuário ", creds.Email)
+			logrus.Errorf("LoginUser: senha incorreta para email=%s", creds.Email)
 			http.Error(w, "Senha incorreta", http.StatusUnauthorized)
 			return
 		}
 
-		// Define a expiração do token para 24 horas.
-		expirationTime := time.Now().Add(24 * time.Hour)
+		// 5) Gera as claims e o token JWT
+		expiration := time.Now().Add(24 * time.Hour)
 		claims := &Claims{
 			ID:    user.ID,
 			Email: user.Email,
 			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(expirationTime),
+				ExpiresAt: jwt.NewNumericDate(expiration),
 				IssuedAt:  jwt.NewNumericDate(time.Now()),
 			},
 		}
-
-		// Cria o token JWT com as claims definidas.
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString(jwtKey)
+		signed, err := token.SignedString(jwtKey)
 		if err != nil {
-			logrus.Error("Erro ao gerar token JWT para o usuário ", creds.Email, ": ", err)
+			logrus.Errorf("LoginUser: erro ao gerar token para email=%s: %v", creds.Email, err)
 			http.Error(w, "Erro ao gerar token", http.StatusInternalServerError)
 			return
 		}
 
-		// Registra a autenticação bem-sucedida no log.
-		logrus.Info("Usuário autenticado com sucesso: ", creds.Email)
+		logrus.Infof("LoginUser: autenticação bem-sucedida, email=%s", creds.Email)
 
-		// Retorna o token JWT na resposta.
+		// 6) Retorna o token JSON
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
-			"token": tokenString,
+			"token": signed,
 		})
 	}
 }
