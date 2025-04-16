@@ -1,129 +1,117 @@
-import React, { useEffect, useState } from 'react';
-import api from '../api';
-import { useHistory } from 'react-router-dom';
+// anima-frontend/src/pages/DashboardPage.js
+
+import React, { useState, useEffect } from 'react';
+import api from '../api'; // seu axios configurado com baseURL e token
 
 export default function DashboardPage() {
-  const [treinos, setTreinos] = useState([]);
   const [objetivos, setObjetivos] = useState([]);
-  const [selectedObjetivo, setSelectedObjetivo] = useState('');
-  const [sugestoes, setSugestoes] = useState([]);
-  const history = useHistory();
+  const [objetivoSelecionado, setObjetivoSelecionado] = useState('');
+  const [treino, setTreino] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState('');
 
-  // Busca objetivos e treinos ao montar
+  // 1. Carrega objetivos ao montar o componente
   useEffect(() => {
-    const init = async () => {
+    async function fetchObjetivos() {
       try {
-        const [objResp, trResp] = await Promise.all([
-          api.get('/objetivos'),
-          api.get('/treinos')
-        ]);
-        setObjetivos(objResp.data);
-        setTreinos(trResp.data);
-      } catch {
-        history.push('/login');
+        const { data } = await api.get('/objetivos');
+        setObjetivos(data);
+      } catch (e) {
+        console.error(e);
       }
-    };
-    init();
-  }, [history]);
+    }
+    fetchObjetivos();
+  }, []);
 
-  // Lida com criação de treino e recarrega lista
-  const createTreino = async () => {
+  // 2. Trata mudança no select
+  function handleChangeObjetivo(e) {
+    setObjetivoSelecionado(e.target.value);
+    setTreino(null);
+    setErro('');
+  }
+
+  // 3. Chama o back‑end para gerar o treino
+  async function handleSugerirTreino() {
+    if (!objetivoSelecionado) return;
+    setCarregando(true);
+    setErro('');
     try {
-      await api.post('/treino/criar', {
-        nivel: 'iniciante',
-        objetivo: 'emagrecimento',
-        dias: 3,
-        divisao: 'A',
-        exercicios: [1, 2, 11],
+      const { data } = await api.post('/gerar-treino', {
+        objetivo: objetivoSelecionado,
+        // se precisar de nível, adicione aqui
       });
-      const resp = await api.get('/treinos');
-      setTreinos(resp.data);
-    } catch {
-      alert('Erro ao criar treino');
+      setTreino(data);
+    } catch (e) {
+      console.error(e);
+      setErro('Erro ao gerar treino');
+    } finally {
+      setCarregando(false);
     }
-  };
-
-  // Solicita sugestões baseado no objetivo selecionado
-  const handleSugestao = async () => {
-    try {
-      const resp = await api.get(`/treino?objetivo=${encodeURIComponent(selectedObjetivo)}`);
-      setSugestoes(resp.data);
-    } catch {
-      alert('Erro ao buscar sugestões');
-    }
-  };
-
-  // Logout
-  const handleLogout = () => {
-    localStorage.removeItem('jwt');
-    history.push('/login');
-  };
+  }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1>Painel de Treinos</h1>
-      <button onClick={handleLogout} style={{ float: 'right' }}>Sair</button>
+    <div className="max-w-xl mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">Painel de Treinos</h1>
 
-      <section style={{ marginBottom: 40 }}>
-        <h2>Criar Treino</h2>
-        <button onClick={createTreino}>Criar Treino</button>
-      </section>
+      {/* Criar Treino (pode abrir modal ou navegar) */}
+      <button
+        className="mb-6 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        onClick={() => {/* navegue ou abra modal */}}
+      >
+        Criar Treino
+      </button>
 
-      <section style={{ marginBottom: 40 }}>
-        <h2>Selecione um Objetivo para Sugestões</h2>
+      {/* Seletor de Objetivo */}
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold mb-2">
+          Selecione um Objetivo para Sugestões
+        </h2>
         <select
-          value={selectedObjetivo}
-          onChange={e => setSelectedObjetivo(e.target.value)}
-          style={{ padding: 8, marginRight: 10 }}
+          className="border px-3 py-2 rounded w-full"
+          value={objetivoSelecionado}
+          onChange={handleChangeObjetivo}
         >
           <option value="">-- Escolha um objetivo --</option>
-          {objetivos.map(o => (
-            <option key={o.id} value={o.nome}>{o.nome}</option>
+          {objetivos.map(obj => (
+            <option key={obj.id} value={obj.nome}>
+              {obj.nome}
+            </option>
           ))}
         </select>
         <button
-          type="button"
-          disabled={!selectedObjetivo}
-          onClick={handleSugestao}
-          style={{ padding: '8px 16px' }}
+          className={`mt-2 px-4 py-2 rounded ${
+            objetivoSelecionado
+              ? 'bg-green-600 hover:bg-green-700 text-white'
+              : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+          }`}
+          disabled={!objetivoSelecionado || carregando}
+          onClick={handleSugerirTreino}
         >
-          Sugerir Treinos
+          {carregando ? 'Carregando...' : 'Sugerir Treinos'}
         </button>
+        {erro && <p className="text-red-500 mt-2">{erro}</p>}
+      </div>
 
-        {sugestoes.length > 0 && (
-          <div style={{ marginTop: 20 }}>
-            <h3>Sugestões para {selectedObjetivo}</h3>
-            {sugestoes.map(t => (
-              <div
-                key={t.id}
-                style={{ border: '1px solid #8b8', padding: 10, margin: '10px 0' }}
-              >
-                <strong>{t.divisao} – {t.nivel}</strong><br />
-                Dias: {t.dias}<br />
-                Exercícios: {t.exercicios.join(', ')}
-              </div>
-            ))}
+      {/* Exibe os treinos gerados */}
+      <div>
+        <h2 className="text-lg font-semibold mb-2">Seus Treinos</h2>
+        {!treino && <p>Você ainda não tem treinos.</p>}
+        {treino && (
+          <div className="bg-gray-100 p-4 rounded">
+            <p className="font-medium">
+              Objetivo: <span className="font-normal">{treino.objetivo}</span>
+            </p>
+            <p className="font-medium">
+              Nível: <span className="font-normal">{treino.nivel || '—'}</span>
+            </p>
+            <ul className="list-disc list-inside mt-2">
+              {treino.exercicios.map((ex, i) => (
+                <li key={i}>{ex}</li>
+              ))}
+            </ul>
           </div>
         )}
-      </section>
-
-      <section>
-        <h2>Seus Treinos</h2>
-        {treinos.length === 0 ? (
-          <p>Você ainda não tem treinos.</p>
-        ) : (
-          treinos.map(t => (
-            <div
-              key={t.id}
-              style={{ border: '1px solid #ccc', padding: 10, marginTop: 10 }}
-            >
-              <strong>{t.divisao} – {t.nivel} / {t.objetivo}</strong><br />
-              Dias: {t.dias}<br />
-              Exercícios: {t.exercicios.join(', ')}
-            </div>
-          ))
-        )}
-      </section>
+      </div>
     </div>
   );
 }
