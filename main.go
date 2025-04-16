@@ -20,3 +20,5 @@ func main() {
 
 http.HandleFunc("/treino", handlers.GerarTreino(db))         // GET
 http.HandleFunc("/treino/criar", handlers.CriarTreino(db))   // POST
+http.HandleFunc("/exercicios", handlers.ListarExercicios(db))
+
