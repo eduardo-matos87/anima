@@ -1,4 +1,4 @@
--- Tabelas principais
+-- Criação das tabelas principais
 
 CREATE TABLE grupos_musculares (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
