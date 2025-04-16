@@ -1,4 +1,5 @@
-// Arquivo: src/pages/RegisterPage.js
+// Arquivo: anima-frontend/src/pages/RegisterPage.js
+
 import React, { useState } from 'react';
 import api from '../api';
 
@@ -12,9 +13,9 @@ export default function RegisterPage() {
     e.preventDefault();
     try {
       const resp = await api.post('/register', { name, email, password });
-      setMsg(`Cadastrado! ID: ${resp.data.user_id}`);
+      setMsg(`Cadastrado com sucesso! ID: ${resp.data.user_id}`);
     } catch {
-      setMsg('Falha no registro');
+      setMsg('Falha no registro. Tente novamente.');
     }
   };
 
@@ -23,17 +24,28 @@ export default function RegisterPage() {
       <h2>Registrar</h2>
       <form onSubmit={handleSubmit}>
         <input
-          placeholder="Nome" value={name}
-          onChange={e => setName(e.target.value)} required
-        /><br/><br/>
+          placeholder="Nome"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          required
+        />
+        <br /><br />
         <input
-          type="email" placeholder="Email" value={email}
-          onChange={e => setEmail(e.target.value)} required
-        /><br/><br/>
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          required
+        />
+        <br /><br />
         <input
-          type="password" placeholder="Senha" value={password}
-          onChange={e => setPassword(e.target.value)} required
-        /><br/><br/>
+          type="password"
+          placeholder="Senha"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          required
+        />
+        <br /><br />
         <button type="submit">Registrar</button>
       </form>
       {msg && <p>{msg}</p>}
