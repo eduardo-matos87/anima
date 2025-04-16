@@ -2,13 +2,16 @@
 
 import React, { useEffect, useState } from 'react';
 import api from '../api';
-import { useHistory, Link } from 'react-router-dom';
+import { useHistory } from 'react-router-dom';
 
+/**
+ * Página principal (dashboard) exibindo e criando treinos.
+ */
 export default function DashboardPage() {
   const [treinos, setTreinos] = useState([]);
   const history = useHistory();
 
-  // Ao montar, busca todos os treinos; se falhar, volta ao login
+  // Ao montar, tenta buscar os treinos; se falhar, volta ao login.
   useEffect(() => {
     const fetchTreinos = async () => {
       try {
@@ -21,7 +24,7 @@ export default function DashboardPage() {
     fetchTreinos();
   }, [history]);
 
-  // Cria um treino e recarrega a lista
+  // Chama o endpoint de criação e recarrega a lista.
   const createTreino = async () => {
     try {
       await api.post('/treino/criar', {
@@ -38,7 +41,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Logout: limpa token e volta para login
+  // Remove o JWT e retorna ao login
   const handleLogout = () => {
     localStorage.removeItem('jwt');
     history.push('/login');
@@ -47,13 +50,16 @@ export default function DashboardPage() {
   return (
     <div style={{ padding: 20 }}>
       <h1>Painel de Treinos</h1>
-      <div style={{ float: 'right' }}>
-        <Link to="/logout">Sair</Link>
-      </div>
+      {/* Botão de logout usando handleLogout */}
+      <button onClick={handleLogout} style={{ float: 'right' }}>
+        Sair
+      </button>
 
-      <button onClick={createTreino}>Criar Treino</button>
+      <button onClick={createTreino} style={{ marginTop: 20 }}>
+        Criar Treino
+      </button>
 
-      <h2 style={{ marginTop: 20 }}>Seus Treinos</h2>
+      <h2 style={{ marginTop: 40 }}>Seus Treinos</h2>
       {treinos.length === 0 ? (
         <p>Você ainda não tem treinos.</p>
       ) : (
