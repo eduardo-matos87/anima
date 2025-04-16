@@ -1,21 +1,19 @@
-// src/api.js
+// Arquivo: anima-frontend/src/api.js
+
 import axios from 'axios';
 
-// Cria uma instância do Axios com a URL base da sua API
 const api = axios.create({
-  baseURL: 'http://localhost:8080', // altere se a API estiver em outro endereço
+  baseURL: 'http://localhost:8080',      // Sua API Go está rodando aqui
+  headers: { 'Content-Type': 'application/json' }
 });
 
-// Adiciona um interceptor para incluir o token, se existir
-api.interceptors.request.use((config) => {
-  // Obtém o token do localStorage (ou de onde você armazenar)
+// Interceptor para anexar o JWT em todas as requisições
+api.interceptors.request.use(config => {
   const token = localStorage.getItem('jwt');
   if (token) {
-    config.headers['Authorization'] = `Bearer ${token}`;
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
-}, (error) => {
-  return Promise.reject(error);
 });
 
 export default api;
