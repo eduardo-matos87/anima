@@ -1,92 +1,47 @@
-// Arquivo: main.go
-
-// @title Anima API
-// @version 1.0
-// @description API para gerenciamento de treinos e saúde.
-// @termsOfService http://swagger.io/terms/
-// @contact.name Eduardo Matos
-// @contact.email eduardo@example.com
-// @license.name MIT
-// @license.url https://opensource.org/licenses/MIT
-// @host localhost:8080
-// @BasePath /
 package main
 
 import (
-	"database/sql"
-	"fmt"
+	"log"
 	"net/http"
 	"os"
 
-	"anima/internal/handlers"                   // Handlers da aplicação
-	_ "anima/docs"                              // Swagger docs
-	httpSwagger "github.com/swaggo/http-swagger"
-	_ "github.com/lib/pq" // Postgres
-	logrus "github.com/sirupsen/logrus"         // Log avançado
+	"github.com/gorilla/mux"
+	"anima/internal/handlers"
+	"database/sql"
+	_ "github.com/lib/pq"
 )
 
-// corsMiddleware adiciona headers CORS e responde OPTIONS
-// Arquivo: main.go (trecho do corsMiddleware)
+// Inicializa a conexão PostgreSQL
+func setupDatabase() *sql.DB {
+	connStr := os.Getenv("DATABASE_URL")
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatalf("Erro ao conectar ao banco: %v", err)
+	}
 
-func corsMiddleware(next http.Handler) http.Handler {
-  return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    // Se quiser liberar TODAS as origens (incluindo http://192.168.173.249:3000):
-    w.Header().Set("Access-Control-Allow-Origin", "*")
+	if err = db.Ping(); err != nil {
+		log.Fatalf("Banco indisponível: %v", err)
+	}
 
-    // Se você quisesse restringir apenas ao seu front‑end mobile:
-    // w.Header().Set("Access-Control-Allow-Origin", "http://192.168.173.249:3000")
-
-    w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-    if r.Method == http.MethodOptions {
-      w.WriteHeader(http.StatusOK)
-      return
-    }
-    next.ServeHTTP(w, r)
-  })
+	log.Println("Conectado ao PostgreSQL com sucesso!")
+	return db
 }
 
 func main() {
-	// 1) Log em modo DEBUG
-	logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-	logrus.SetLevel(logrus.DebugLevel)
+	db := setupDatabase()
 
-	const logFile = "/var/log/anima.log"
-	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		logrus.Warnf("Não foi possível abrir %s: %v", logFile, err)
-	} else {
-		logrus.Infof("Registrando logs em %s", logFile)
-		logrus.SetOutput(f)
+	router := mux.NewRouter()
+
+	// Rota do Handler para gerar treino
+	router.HandleFunc("/gerar-treino", handlers.GerarTreino(db)).Methods("POST")
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
-	// Conexão com PostgreSQL
-	db, err := sql.Open("postgres", "host=127.0.0.1 port=5432 user=postgres password=anima123 dbname=anima sslmode=disable")
-	if err != nil {
-		logrus.Fatal("Erro ao conectar no PostgreSQL:", err)
-	}
-	defer db.Close()
-
-	// 3) Configuração de rotas
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "pong")
-	})
-	mux.HandleFunc("/treino", handlers.GerarTreino(db))
-	mux.HandleFunc("/treino/criar", handlers.AuthMiddleware(handlers.CriarTreino(db)))
-	mux.HandleFunc("/treinos", handlers.AuthMiddleware(handlers.ListarTreinos(db)))
-	mux.HandleFunc("/exercicios", handlers.ListarExercicios(db))
-	mux.HandleFunc("/objetivos", handlers.ListarObjetivos(db))
-	mux.HandleFunc("/grupos", handlers.ListarGruposMusculares(db))
-	mux.HandleFunc("/register", handlers.RegisterUser(db))
-	mux.HandleFunc("/login", handlers.LoginUser(db))
-	mux.Handle("/swagger/", httpSwagger.WrapHandler)
-
-	// 4) Inicia servidor com CORS
-	handler := corsMiddleware(mux)
-	logrus.Info("Servidor rodando em http://localhost:8080")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
-		logrus.Fatal("Erro ao iniciar servidor:", err)
+	log.Printf("Servidor rodando em :%s", port)
+	if err := http.ListenAndServe(":"+port, router); err != nil {
+		log.Fatalf("Erro ao iniciar servidor: %v", err)
 	}
 }
