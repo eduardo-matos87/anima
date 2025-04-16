@@ -118,6 +118,10 @@ func main() {
 	// http://localhost:8080/swagger/index.html
 	http.Handle("/swagger/", httpSwagger.WrapHandler)
 
+	// Logs 
+	http.HandleFunc("/register", handlers.RegisterUser(db))
+	http.HandleFunc("/login", handlers.LoginUser(db))
+	
 	// -----------------------------------------------------------------------------
 	// Inicialização do Servidor HTTP
 	// -----------------------------------------------------------------------------
