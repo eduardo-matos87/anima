@@ -26,18 +26,25 @@ import (
 )
 
 // corsMiddleware adiciona headers CORS e responde OPTIONS
+// Arquivo: main.go (trecho do corsMiddleware)
+
 func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.Debugf("CORS %s from %s", r.Method, r.Header.Get("Origin"))
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+  return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    // Se quiser liberar TODAS as origens (incluindo http://192.168.173.249:3000):
+    w.Header().Set("Access-Control-Allow-Origin", "*")
+
+    // Se você quisesse restringir apenas ao seu front‑end mobile:
+    // w.Header().Set("Access-Control-Allow-Origin", "http://192.168.173.249:3000")
+
+    w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+    if r.Method == http.MethodOptions {
+      w.WriteHeader(http.StatusOK)
+      return
+    }
+    next.ServeHTTP(w, r)
+  })
 }
 
 func main() {
