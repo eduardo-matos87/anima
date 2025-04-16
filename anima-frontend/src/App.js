@@ -1,58 +1,53 @@
 // Arquivo: anima-frontend/src/App.js
 
 import React, { useState } from 'react';
-import api from './api';    // Instância do Axios configurada em src/api.js
-import './App.css';         // Seus estilos globais
+import api from './api';    // Instância do Axios
+import './App.css';         // Seus estilos
 
 /**
- * Componente principal da aplicação Anima Front‑End.
+ * Componente principal da aplicação web Anima Front‑End.
  * Gerencia o login do usuário e a chamada protegida para criar um treino.
  */
 function App() {
-  // 📧 State para guardar o valor do campo de e‑mail
+  // States para os campos de login e para exibir erros/respostas
   const [loginEmail, setLoginEmail] = useState("");
-  // 🔒 State para guardar o valor do campo de senha
   const [loginPassword, setLoginPassword] = useState("");
-  // ⚠️ State para exibir mensagens de erro na UI
   const [errorMessage, setErrorMessage] = useState("");
-  // 📊 State para armazenar a resposta do endpoint /treino/criar
   const [treinoData, setTreinoData] = useState(null);
 
   /**
-   * loginUser() → Envia POST /login com email e senha.
-   * Se bem‑sucedido, salva o token JWT no localStorage.
+   * Envia a requisição de login.
+   * Agora com DEBUG no console e botão tipo="button" para evitar recarregamento de página.
    */
   const loginUser = async () => {
-    // 1️⃣ Para debug: veja no console o que está sendo enviado
-    console.log("Enviando login:", { email: loginEmail, password: loginPassword });
+    // 1) DEBUG: veja exatamente o que está sendo enviado
+    console.log("🔍 Payload de login:", {
+      email: loginEmail,
+      password: loginPassword
+    });
 
     try {
-      // ⬆️ POST /login { email, password }
       const response = await api.post(
         "/login",
         { email: loginEmail, password: loginPassword },
         { headers: { "Content-Type": "application/json" } }
       );
-
-      // 🔑 Salva o token JWT no localStorage
+      // 2) Se chegar aqui, salvamos o token
       localStorage.setItem("jwt", response.data.token);
-      setErrorMessage(""); // 🚫 Limpa mensagens de erro anteriores
-      alert("Login realizado com sucesso!");
-    } catch (error) {
-      // 🐞 Log detalhado no console para debug
-      console.error("Erro no login:", error);
-      // 📝 Exibe mensagem de falha na UI
-      setErrorMessage("Falha no login. Verifique suas credenciais e tente novamente.");
+      setErrorMessage("");
+      alert("✅ Login realizado com sucesso!");
+    } catch (err) {
+      console.error("❌ Erro no login:", err);
+      setErrorMessage("Falha no login. Verifique suas credenciais.");
     }
   };
 
   /**
-   * createTreino() → Envia POST /treino/criar (endpoint protegido),
-   * usa o token JWT do localStorage automaticamente.
+   * Envia a requisição para criar um treino (endpoint protegido).
+   * O interceptor de api.js adiciona o token automaticamente.
    */
   const createTreino = async () => {
     try {
-      // ⬆️ POST /treino/criar { nivel, objetivo, dias, divisao, exercicios }
       const response = await api.post("/treino/criar", {
         nivel: "iniciante",
         objetivo: "emagrecimento",
@@ -60,24 +55,21 @@ function App() {
         divisao: "A",
         exercicios: [1, 2, 11],
       });
-      // 📈 Atualiza o state com a resposta
       setTreinoData(response.data);
       setErrorMessage("");
-    } catch (error) {
-      console.error("Erro ao criar treino:", error);
-      setErrorMessage("Erro ao criar treino. Verifique se está logado e tente novamente.");
+    } catch (err) {
+      console.error("❌ Erro ao criar treino:", err);
+      setErrorMessage("Erro ao criar treino. Está logado?");
     }
   };
 
   return (
     <div className="App" style={{ padding: 20, fontFamily: 'Arial, sans-serif' }}>
-      {/* Título principal */}
       <h1>Anima Front‑End</h1>
 
-      {/* === Seção de Login === */}
+      {/* === LOGIN === */}
       <section style={{ marginBottom: 40 }}>
         <h2>Login</h2>
-        {/* Campo de e‑mail */}
         <input
           type="email"
           placeholder="Email"
@@ -85,7 +77,6 @@ function App() {
           onChange={e => setLoginEmail(e.target.value)}
           style={{ marginRight: 10, padding: 8 }}
         />
-        {/* Campo de senha */}
         <input
           type="password"
           placeholder="Senha"
@@ -93,24 +84,21 @@ function App() {
           onChange={e => setLoginPassword(e.target.value)}
           style={{ marginRight: 10, padding: 8 }}
         />
-        {/* Botão de login (type="button" evita submit de form vazio) */}
+        {/* Botão type="button" evita comportamento de submit padrão */}
         <button type="button" onClick={loginUser} style={{ padding: '8px 16px' }}>
           Entrar
         </button>
-        {/* Exibe mensagem de erro se login falhar */}
         {errorMessage && (
           <p style={{ color: 'red', marginTop: 10 }}>{errorMessage}</p>
         )}
       </section>
 
-      {/* === Seção de Criação de Treino (Protegida) === */}
+      {/* === CRIAR TREINO === */}
       <section>
         <h2>Criar Treino (Requer login)</h2>
-        {/* Botão que dispara a criação do treino */}
         <button type="button" onClick={createTreino} style={{ padding: '8px 16px' }}>
           Criar Treino
         </button>
-        {/* Exibe o JSON da resposta, se houver */}
         {treinoData && (
           <pre style={{ background: '#f4f4f4', padding: 10, marginTop: 20 }}>
             {JSON.stringify(treinoData, null, 2)}
