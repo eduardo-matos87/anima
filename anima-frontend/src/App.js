@@ -1,49 +1,20 @@
-// Arquivo: anima-frontend/src/App.js
-
-import React from 'react';
-import {
-  BrowserRouter as Router,
-  Switch,
-  Route,
-  Redirect
-} from 'react-router-dom';
-
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import DashboardPage from './pages/DashboardPage';
-import LogoutPage from './pages/LogoutPage';
+import { useEffect, useState } from "react";
+import { getHealth } from "./services/api";
 
 function App() {
-  const isLogged = () => !!localStorage.getItem('jwt');
+  const [status, setStatus] = useState("…");
+
+  useEffect(() => {
+    getHealth()
+      .then(setStatus)
+      .catch(e => setStatus(`erro: ${e.message}`));
+  }, []);
 
   return (
-    <Router>
-      <Switch>
-        <Route exact path="/">
-          {isLogged() ? <Redirect to="/dashboard" /> : <Redirect to="/login" />}
-        </Route>
-
-        <Route path="/login">
-          {isLogged() ? <Redirect to="/dashboard" /> : <LoginPage />}
-        </Route>
-
-        <Route path="/register">
-          {isLogged() ? <Redirect to="/dashboard" /> : <RegisterPage />}
-        </Route>
-
-        <Route path="/logout">
-          <LogoutPage />
-        </Route>
-
-        <Route path="/dashboard">
-          {isLogged() ? <DashboardPage /> : <Redirect to="/login" />}
-        </Route>
-
-        <Route path="*">
-          <Redirect to="/" />
-        </Route>
-      </Switch>
-    </Router>
+    <div style={{ fontFamily: "sans-serif", padding: "1rem" }}>
+      <h1>Anima Frontend</h1>
+      <p>Backend status: <strong>{status}</strong></p>
+    </div>
   );
 }
 
