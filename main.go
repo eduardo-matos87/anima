@@ -3,45 +3,38 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
+	"time"
 
-	"github.com/gorilla/mux"
+	appdb "anima/internal/db"
 	"anima/internal/handlers"
-	"database/sql"
-	_ "github.com/lib/pq"
+	httpmw "anima/internal/http"
 )
 
-// Inicializa a conexão PostgreSQL
-func setupDatabase() *sql.DB {
-	connStr := os.Getenv("DATABASE_URL")
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		log.Fatalf("Erro ao conectar ao banco: %v", err)
-	}
-
-	if err = db.Ping(); err != nil {
-		log.Fatalf("Banco indisponível: %v", err)
-	}
-
-	log.Println("Conectado ao PostgreSQL com sucesso!")
-	return db
-}
-
 func main() {
-	db := setupDatabase()
+	// conecta no Postgres
+	pg := appdb.Connect()
+	defer pg.Close()
 
-	router := mux.NewRouter()
+	// instancia o handler
+	gen := handlers.NewGenerateHandler(pg)
 
-	// Rota do Handler para gerar treino
-	router.HandleFunc("/gerar-treino", handlers.GerarTreino(db)).Methods("POST")
+	// define rotas
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/api/generate", gen.GenerateWorkout)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	// aplica CORS
+	handler := httpmw.CORS(mux)
+
+	// configura e inicia servidor
+	srv := &http.Server{
+		Addr:              ":8081", // backend em 8081
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Printf("Servidor rodando em :%s", port)
-	if err := http.ListenAndServe(":"+port, router); err != nil {
-		log.Fatalf("Erro ao iniciar servidor: %v", err)
-	}
+	log.Println("API Anima ouvindo em http://localhost:8081")
+	log.Fatal(srv.ListenAndServe())
 }
