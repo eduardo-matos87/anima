@@ -4,3 +4,6 @@ bin/
 vendor/
 # DB local
 anima.db
+
+# DB local
+anima.db
