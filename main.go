@@ -8,30 +8,33 @@ import (
 	"os"
 	"time"
 
+	"anima/internal/handlers"
+
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	// Config
+	// Configurações via env
 	port := getenv("PORT", "8081")
 	dsn := getenv("DATABASE_URL", "postgres://anima:anima@localhost:5432/anima?sslmode=disable")
 
-	// DB (opcional, mas útil para health)
+	// Conexão com Postgres
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("erro abrindo conexão Postgres: %v", err)
 	}
 	defer db.Close()
 
-	// Teste de conexão com timeout
+	// Teste rápido de conexão (não derruba o servidor se falhar)
 	if err := pingWithTimeout(db, 3*time.Second); err != nil {
-		log.Printf("⚠️ aviso: não consegui pingar o Postgres agora: %v", err)
+		log.Printf("⚠️ aviso: ping ao Postgres falhou: %v", err)
 	}
 
 	// Rotas
 	mux := http.NewServeMux()
+
+	// Healthcheck simples (valida DB a cada chamada)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		// Revalida DB no /health
 		if err := pingWithTimeout(db, 1*time.Second); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte("db: down"))
@@ -41,10 +44,13 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	// Middleware CORS simples
+	// Geração de treino
+	mux.Handle("/treinos/generate", handlers.GenerateTreino(db))
+
+	// Middleware CORS básico
 	handler := withCORS(mux)
 
-	// Server
+	// Servidor HTTP
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      handler,
