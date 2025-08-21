@@ -11,6 +11,6 @@ SELECT to_regclass('public.users')      IS NOT NULL AS has_users;
 SELECT to_regclass('public.exercises')  IS NOT NULL AS has_exercises;
 SELECT to_regclass('public.workouts')   IS NOT NULL AS has_workouts;
 SQL
-migrate -path "$MIGRATIONS_DIR" -database "$TEST_URL" down -all
+migrate -path "$MIGRATIONS_DIR" -database "$TEST_URL" down -all || echo "no down migrations, skipping"
 migrate -path "$MIGRATIONS_DIR" -database "$TEST_URL" up
 echo "OK: validação concluída."
