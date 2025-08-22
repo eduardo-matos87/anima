@@ -45,9 +45,15 @@ PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d postgres -c "CREATE DA
 migrate -path "$MIGRATIONS_DIR" -database "$TEST_URL" up
 PGPASSWORD="$DB_PASS" pg_dump -h "$DB_HOST" -U "$DB_USER" -d "$TEST_DB" --schema-only > "$REBUILT_DUMP"
 
-# Normaliza comentários/ruído
+# --- Normalizações (ignorar ruídos que não são schema lógico) ---
+# remove comentários
 sed -i 's/--.*//g' "$REAL_DUMP"
 sed -i 's/--.*//g' "$REBUILT_DUMP"
+# ignora owners/privileges específicos do ambiente
+sed -i -E '/^ALTER SCHEMA public OWNER TO /d' "$REAL_DUMP" "$REBUILT_DUMP"
+sed -i -E '/^ALTER DEFAULT PRIVILEGES .* GRANT ALL ON TABLES TO /d' "$REAL_DUMP" "$REBUILT_DUMP"
+# remove linhas em branco extras
+sed -i '/^[[:space:]]*$/d' "$REAL_DUMP" "$REBUILT_DUMP"
 
 echo "-> diff:"
 if diff -u "$REBUILT_DUMP" "$REAL_DUMP"; then
