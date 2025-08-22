@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"math"
@@ -14,7 +13,7 @@ type MeSummary struct {
 	WeightKG          *float64 `json:"weight_kg,omitempty"` // último peso
 	AgeYears          *int     `json:"age_years,omitempty"`
 	BMI               *float64 `json:"bmi,omitempty"`
-	WeightChange30dKg *float64 `json:"weight_change_30d,omitempty"`   // delta (kg) últimos 30 dias
+	WeightChange30dKg *float64 `json:"weight_change_30d,omitempty"`   // delta kg
 	LastMeasurementAt *string  `json:"last_measurement_at,omitempty"` // YYYY-MM-DD
 }
 
@@ -22,34 +21,32 @@ func MeSummaryHandler(db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid := getUserID(r)
 
-		// 1) Perfil (altura, peso, birth_date)
 		prof, _ := loadUserProfile(r.Context(), db, uid)
 
-		// 2) Métricas (último peso & peso de ~30d atrás)
 		now := time.Now().UTC()
 		thirtyDaysAgo := now.AddDate(0, 0, -30)
 
 		var lastAt *time.Time
-		lastW, lastAtOut, _ := weightAtOrLatest(r.Context(), db, uid, nil) // último
+		lastW, lastAtOut, _ := weightAtOrLatest(r.Context(), db, uid, nil)
 		if lastAtOut != nil {
 			lastAt = lastAtOut
 		}
-		w30, _, _ := weightAtOrLatest(r.Context(), db, uid, &thirtyDaysAgo) // valor mais próximo de 30d atrás
+		w30, _, _ := weightAtOrLatest(r.Context(), db, uid, &thirtyDaysAgo)
 
-		// Merge peso: prioridade ao último de métricas; senão, do perfil
+		// peso final (métrica > perfil)
 		weight := prof.WeightKG
 		if lastW != nil {
 			weight = lastW
 		}
 
-		// Idade
+		// idade
 		var age *int
 		if prof.BirthDate != nil {
 			y := computeAge(*prof.BirthDate, now)
 			age = &y
 		}
 
-		// BMI
+		// IMC
 		var bmi *float64
 		if prof.HeightCM != nil && *prof.HeightCM > 0 && weight != nil && *weight > 0 {
 			hm := float64(*prof.HeightCM) / 100.0
@@ -58,7 +55,7 @@ func MeSummaryHandler(db *sql.DB) http.Handler {
 			bmi = &v
 		}
 
-		// Delta 30d
+		// delta 30d
 		var delta *float64
 		if weight != nil && w30 != nil {
 			d := *weight - *w30
@@ -84,52 +81,4 @@ func MeSummaryHandler(db *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
 	})
-}
-
-// Retorna peso e data da medição mais recente; se refDate != nil,
-// tenta pegar a medição mais próxima ANTES ou NA data refDate.
-func weightAtOrLatest(ctx context.Context, db *sql.DB, userID string, refDate *time.Time) (*float64, *time.Time, error) {
-	if refDate == nil {
-		var w sql.NullFloat64
-		var at time.Time
-		err := db.QueryRowContext(ctx, `
-			SELECT weight_kg, measured_at
-			FROM user_metrics
-			WHERE user_id=$1
-			ORDER BY measured_at DESC
-			LIMIT 1
-		`, userID).Scan(&w, &at)
-		if err == sql.ErrNoRows {
-			return nil, nil, nil
-		}
-		if err != nil {
-			return nil, nil, err
-		}
-		if w.Valid {
-			v := w.Float64
-			return &v, &at, nil
-		}
-		return nil, &at, nil
-	}
-
-	var w sql.NullFloat64
-	var at time.Time
-	err := db.QueryRowContext(ctx, `
-		SELECT weight_kg, measured_at
-		FROM user_metrics
-		WHERE user_id=$1 AND measured_at<= $2
-		ORDER BY measured_at DESC
-		LIMIT 1
-	`, userID, *refDate).Scan(&w, &at)
-	if err == sql.ErrNoRows {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	if w.Valid {
-		v := w.Float64
-		return &v, &at, nil
-	}
-	return nil, &at, nil
 }
