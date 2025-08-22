@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -18,20 +17,19 @@ type ListExercisesResp struct {
 	Items []ExerciseItem `json:"items"`
 }
 
-func ListExercises(db *sql.DB) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func ListExercises(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		grupo := strings.TrimSpace(r.URL.Query().Get("grupo"))
 
 		base := `SELECT id, nome, grupo FROM exercises WHERE 1=1`
 		args := []any{}
-
 		if q != "" {
-			base += ` AND nome ILIKE ` + place(len(args)+1)
+			base += ` AND unaccent(lower(nome)) LIKE unaccent(lower($1))`
 			args = append(args, "%"+q+"%")
 		}
 		if grupo != "" {
-			base += ` AND lower(grupo) = lower(` + place(len(args)+1) + `)`
+			base += ` AND lower(grupo) = lower($` + string('1'+len(args)) + `)`
 			args = append(args, grupo)
 		}
 		base += ` ORDER BY nome LIMIT 100`
@@ -53,8 +51,6 @@ func ListExercises(db *sql.DB) http.Handler {
 			items = append(items, it)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(ListExercisesResp{Items: items})
-	})
+		json.NewEncoder(w).Encode(ListExercisesResp{Items: items})
+	}
 }
-
-func place(i int) string { return "$" + strconv.Itoa(i) }
