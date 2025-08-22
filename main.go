@@ -53,6 +53,7 @@ func main() {
 	mux.Handle("/api/treinos", handlers.SaveTreino(db))             // POST
 	mux.Handle("/api/treinos/by-key/", handlers.GetTreinoByKey(db)) // GET /api/treinos/by-key/{key}
 	mux.Handle("/api/treinos/", handlers.GetTreinoByID(db))         // GET /api/treinos/{id}
+	mux.Handle("/api/me/summary", handlers.MeSummaryHandler(db))    // GET
 
 	// API Perfil & Métricas
 	mux.Handle("/api/me/profile", handlers.UserProfile(db)) // GET/PUT
