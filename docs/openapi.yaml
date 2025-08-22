@@ -2,180 +2,293 @@ openapi: 3.0.3
 info:
   title: Anima API
   version: 0.1.0
+  description: >
+    API para geração e gestão de treinos com suporte a perfil, métricas e anotações de coach.
 servers:
   - url: http://localhost:8081
+    description: Local
+
+tags:
+  - name: Health
+  - name: Exercises
+  - name: Treinos
+  - name: Profile
+  - name: Metrics
+  - name: Summary
+
 paths:
   /health:
     get:
-      summary: Healthcheck
+      tags: [Health]
+      summary: Healthcheck do serviço
       responses:
         '200':
           description: ok
+          content:
+            text/plain:
+              schema: { type: string, example: ok }
 
   /api/exercises:
     get:
-      summary: Lista exercícios (seed)
+      tags: [Exercises]
+      summary: Lista exercícios base
       responses:
         '200':
-          description: Ok
+          description: Lista de exercícios
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListExercisesResp'
+                type: array
+                items:
+                  $ref: '#/components/schemas/Exercise'
 
   /api/treinos/generate:
     post:
-      summary: Gera um treino (IA se USE_AI=true; fallback local)
+      tags: [Treinos]
+      summary: Gera um treino (mock) e, se use_ai=true no perfil, traz coach_notes
+      parameters:
+        - $ref: '#/components/parameters/UserIdHeader'
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/GenerateReq'
+            schema: { $ref: '#/components/schemas/GenerateReq' }
       responses:
         '200':
-          description: Ok
+          description: Treino gerado (não persistido)
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/GenerateResp'
-        '400': { description: Requisição inválida }
+              schema: { $ref: '#/components/schemas/GenerateResp' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /api/treinos:
+    get:
+      tags: [Treinos]
+      summary: Lista treinos (paginação e busca)
+      parameters:
+        - $ref: '#/components/parameters/UserIdHeader'
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Busca em objetivo/nivel/divisao (unaccent ilike)
+        - in: query
+          name: goal
+          schema: { type: string }
+        - in: query
+          name: level
+          schema: { type: string }
+      responses:
+        '200':
+          description: Lista paginada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreinoListResponse' }
     post:
-      summary: Salva um treino e seus exercícios
+      tags: [Treinos]
+      summary: Salva um treino
+      parameters:
+        - $ref: '#/components/parameters/UserIdHeader'
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/SaveTreinoReq'
+            schema: { $ref: '#/components/schemas/TreinoPost' }
       responses:
         '201':
           description: Criado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SaveTreinoResp'
-        '400': { description: Requisição inválida }
-        '409': { description: treino_id já existe }
+                type: object
+                properties:
+                  id: { type: integer, example: 17 }
+                  treino_id: { type: string, example: "20250822T150405" }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /api/treinos/{id}:
     get:
-      summary: Busca um treino por ID
+      tags: [Treinos]
+      summary: Obtém um treino por ID
       parameters:
-        - name: id
-          in: path
+        - $ref: '#/components/parameters/UserIdHeader'
+        - in: path
+          name: id
           required: true
-          schema: { type: integer }
+          schema: { type: integer, minimum: 1 }
       responses:
         '200':
-          description: Ok
+          description: Treino encontrado
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/TreinoDetail'
-        '404': { description: Não encontrado }
-
-  /api/treinos/by-key/{key}:
-    get:
-      summary: Busca um treino pela chave lógica (treino_id)
+              schema: { $ref: '#/components/schemas/TreinoItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Treinos]
+      summary: Atualiza apenas coach_notes de um treino
       parameters:
-        - name: key
-          in: path
+        - $ref: '#/components/parameters/UserIdHeader'
+        - in: path
+          name: id
           required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: Ok
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TreinoDetail'
-        '404': { description: Não encontrado }
-
-  /api/me/profile:
-    get:
-      summary: Obtém o perfil do usuário atual
-      parameters:
-        - $ref: '#/components/parameters/XUserID'
-      responses:
-        '200':
-          description: Ok
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserProfileOut'
-    put:
-      summary: Atualiza (merge + upsert) o perfil do usuário atual
-      parameters:
-        - $ref: '#/components/parameters/XUserID'
+          schema: { type: integer, minimum: 1 }
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserProfileIn'
+              type: object
+              properties:
+                coach_notes:
+                  type: string
+                  nullable: true
+                  description: Pode ser null/"" para limpar
+      responses:
+        '200':
+          description: Notas atualizadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  coach_notes: { type: string, nullable: true }
+
+  /api/treinos/by-key/{key}:
+    get:
+      tags: [Treinos]
+      summary: Obtém um treino por treino_key lógico
+      parameters:
+        - $ref: '#/components/parameters/UserIdHeader'
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Treino encontrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreinoItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/me/profile:
+    get:
+      tags: [Profile]
+      summary: Obtém o perfil do usuário
+      parameters:
+        - $ref: '#/components/parameters/UserIdHeader'
+      responses:
+        '200':
+          description: Perfil (pode estar vazio)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserProfile' }
+    put:
+      tags: [Profile]
+      summary: Atualiza/merge do perfil (upsert)
+      parameters:
+        - $ref: '#/components/parameters/UserIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserProfile' }
       responses:
         '200':
           description: Perfil atualizado
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/UserProfileOut'
-        '400': { description: Requisição inválida }
+              schema: { $ref: '#/components/schemas/UserProfile' }
 
   /api/me/metrics:
     get:
-      summary: Lista métricas do usuário (intervalo)
+      tags: [Metrics]
+      summary: Lista métricas de usuário (peso histórico)
       parameters:
-        - $ref: '#/components/parameters/XUserID'
-        - in: query
-          name: from
-          schema: { type: string, format: date }
-        - in: query
-          name: to
-          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/UserIdHeader'
       responses:
         '200':
-          description: Ok
+          description: Lista de métricas (mais recente primeiro)
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/MetricOut' }
+                items: { $ref: '#/components/schemas/UserMetric' }
     post:
-      summary: Cria/atualiza a métrica do dia (upsert)
+      tags: [Metrics]
+      summary: Registra uma métrica (peso)
       parameters:
-        - $ref: '#/components/parameters/XUserID'
+        - $ref: '#/components/parameters/UserIdHeader'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/MetricIn' }
+            schema: { $ref: '#/components/schemas/UserMetricPost' }
       responses:
-        '201': { description: Criado/Atualizado }
-        '400': { description: Requisição inválida }
+        '201':
+          description: Criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserMetric' }
+
+  /api/me/summary:
+    get:
+      tags: [Summary]
+      summary: Sumário do usuário (IMC, idade, tendência 30d)
+      parameters:
+        - $ref: '#/components/parameters/UserIdHeader'
+      responses:
+        '200':
+          description: Sumário calculado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeSummary' }
 
 components:
   parameters:
-    XUserID:
-      name: X-User-ID
+    UserIdHeader:
       in: header
+      name: X-User-ID
       required: false
-      schema: { type: string, format: uuid }
-      description: UserId lógico; se ausente, usa USER_ID do ambiente ou um UUID fixo de dev.
+      schema: { type: string, example: "demo-user" }
+      description: >
+        Identificação lógica do usuário. Se não enviado, o backend usa um default (ex.: "demo-user").
+
+  responses:
+    BadRequest:
+      description: Requisição inválida
+    NotFound:
+      description: Recurso não encontrado
+    Conflict:
+      description: Conflito de chave única (ex.: treino_id já usado)
 
   schemas:
+    Exercise:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        muscle_group: { type: string }
+        equipment:
+          type: array
+          items: { type: string }
+        difficulty: { type: string, example: "iniciante" }
+        is_bodyweight: { type: boolean }
+
     GenerateReq:
       type: object
       required: [objetivo, nivel, divisao]
       properties:
-        objetivo: { type: string }
-        nivel: { type: string }
-        divisao: { type: string }
-        dias: { type: integer }
-        notas: { type: string }
+        objetivo: { type: string, example: "hipertrofia" }
+        nivel: { type: string, example: "iniciante" }
+        divisao: { type: string, example: "fullbody" }
+        dias: { type: integer, example: 3 }
 
     GeneratedExercise:
       type: object
@@ -188,39 +301,37 @@ components:
     GenerateResp:
       type: object
       properties:
-        treino_id: { type: string }
+        treino_id: { type: string, example: "20250822T150405" }
         exercicios:
           type: array
           items: { $ref: '#/components/schemas/GeneratedExercise' }
-        coach_notes: { type: string, nullable: true }
+        coach_notes:
+          type: string
+          nullable: true
 
-    SaveTreinoReq:
+    TreinoPost:
       type: object
-      required: [objetivo, nivel, dias, divisao, exercicios]
+      required: [treino_id, objetivo, nivel, dias, divisao, exercicios]
       properties:
-        treino_id: { type: string, nullable: true }
-        objetivo: { type: string }
-        nivel: { type: string }
-        dias: { type: integer }
-        divisao: { type: string }
-        coach_notes: { type: string, nullable: true }
+        treino_id: { type: string, example: "demo-ia-6" }
+        objetivo: { type: string, example: "hipertrofia" }
+        nivel: { type: string, example: "iniciante" }
+        dias: { type: integer, example: 3 }
+        divisao: { type: string, example: "fullbody" }
+        coach_notes:
+          type: string
+          nullable: true
         exercicios:
           type: array
           items:
             type: object
             required: [exercicio_id, series, repeticoes]
             properties:
-              exercicio_id: { type: integer }
-              series: { type: integer }
-              repeticoes: { type: string }
+              exercicio_id: { type: integer, example: 1 }
+              series: { type: integer, example: 3 }
+              repeticoes: { type: string, example: "8-12" }
 
-    SaveTreinoResp:
-      type: object
-      properties:
-        id: { type: integer }
-        treino_id: { type: string, nullable: true }
-
-    TreinoDetail:
+    TreinoItem:
       type: object
       properties:
         id: { type: integer }
@@ -228,7 +339,9 @@ components:
         nivel: { type: string }
         dias: { type: integer }
         divisao: { type: string }
-        coach_notes: { type: string, nullable: true }
+        coach_notes:
+          type: string
+          nullable: true
         exercicios:
           type: array
           items:
@@ -240,53 +353,72 @@ components:
               series: { type: integer }
               repeticoes: { type: string }
 
-    ListExercisesResp:
+    TreinoListResponse:
       type: object
       properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
         items:
           type: array
           items:
             type: object
             properties:
               id: { type: integer }
-              name: { type: string }
-              muscle_group: { type: string }
-              difficulty: { type: string }
-              is_bodyweight: { type: boolean }
+              treino_key:
+                type: string
+                nullable: true
+              objetivo: { type: string }
+              nivel: { type: string }
+              dias: { type: integer }
+              divisao: { type: string }
+              coach_notes:
+                type: string
+                nullable: true
+        query: { type: string, nullable: true }
+        goal: { type: string, nullable: true }
+        level: { type: string, nullable: true }
 
-    UserProfileIn:
+    UserProfile:
+      type: object
+      description: Todos os campos são opcionais; PUT faz merge/upsert.
+      properties:
+        height_cm: { type: integer, minimum: 0, example: 178 }
+        weight_kg: { type: number, format: float, minimum: 0, example: 82.5 }
+        birth_date: { type: string, format: date, example: "1992-05-01" }
+        training_goal: { type: string, example: "hipertrofia" }
+        experience_level: { type: string, example: "iniciante" }
+        activity_level: { type: string, example: "moderate" }
+        use_ai: { type: boolean, example: true }
+        notes: { type: string }
+        updated_at: { type: string, format: date-time, readOnly: true }
+
+    UserMetric:
+      type: object
+      properties:
+        weight_kg: { type: number, format: float, example: 82.3 }
+        measured_at:
+          type: string
+          format: date-time
+          example: "2025-08-22T12:00:00Z"
+
+    UserMetricPost:
+      type: object
+      required: [weight_kg]
+      properties:
+        weight_kg: { type: number, format: float, example: 82.3 }
+        measured_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Se omitido, o backend usa now()
+
+    MeSummary:
       type: object
       properties:
         height_cm: { type: integer, nullable: true }
         weight_kg: { type: number, format: float, nullable: true }
-        birth_date: { type: string, format: date, nullable: true }
-        training_goal: { type: string, nullable: true }
-        experience_level: { type: string, nullable: true }
-        notes: { type: string, nullable: true }
-
-    UserProfileOut:
-      allOf:
-        - $ref: '#/components/schemas/UserProfileIn'
-        - type: object
-          properties:
-            updated_at: { type: string, format: date-time, nullable: true }
-
-    MetricIn:
-      type: object
-      properties:
-        measured_at: { type: string, format: date, nullable: true }
-        weight_kg: { type: number, format: float, nullable: true }
-        bodyfat_pct: { type: number, format: float, nullable: true }
-        height_cm: { type: integer, nullable: true }
-        neck_cm: { type: number, format: float, nullable: true }
-        waist_cm: { type: number, format: float, nullable: true }
-        hip_cm: { type: number, format: float, nullable: true }
-        notes: { type: string, nullable: true }
-
-    MetricOut:
-      allOf:
-        - $ref: '#/components/schemas/MetricIn'
-        - type: object
-          required: [measured_at]
-          properties:
-            measured_at: { type: string, format: date }
+        age_years: { type: integer, nullable: true }
+        bmi: { type: number, format: float, nullable: true }
+        weight_change_30d: { type: number, format: float, nullable: true }
+        last_measurement_at: { type: string, format: date, nullable: true }
