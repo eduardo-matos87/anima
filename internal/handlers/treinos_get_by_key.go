@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// GET /api/treinos/by-key/{treino_id}
 func GetTreinoByKey(db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -22,22 +21,26 @@ func GetTreinoByKey(db *sql.DB) http.Handler {
 		}
 
 		var d TreinoDetail
-		// carrega cabeçalho do treino
+		var coach sql.NullString
 		err := db.QueryRow(`
-			SELECT id, objetivo, nivel, dias, divisao
+			SELECT id, objetivo, nivel, dias, divisao, coach_notes
 			FROM treinos
 			WHERE treino_key = $1
 			LIMIT 1
-		`, key).Scan(&d.ID, &d.Objetivo, &d.Nivel, &d.Dias, &d.Divisao)
+		`, key).Scan(&d.ID, &d.Objetivo, &d.Nivel, &d.Dias, &d.Divisao, &coach)
 		if err == sql.ErrNoRows {
 			http.NotFound(w, r)
 			return
-		} else if err != nil {
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if coach.Valid {
+			s := coach.String
+			d.CoachNotes = &s
+		}
 
-		// carrega exercícios
 		rows, err := db.Query(`
 			SELECT te.exercicio_id, e.name AS nome, e.muscle_group AS grupo, te.series, te.repeticoes
 			FROM treino_exercicios te

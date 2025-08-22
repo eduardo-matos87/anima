@@ -22,10 +22,10 @@ type TreinoDetail struct {
 	Nivel      string       `json:"nivel"`
 	Dias       int          `json:"dias"`
 	Divisao    string       `json:"divisao"`
+	CoachNotes *string      `json:"coach_notes,omitempty"`
 	Exercicios []TreinoItem `json:"exercicios"`
 }
 
-// GET /api/treinos/{id}
 func GetTreinoByID(db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -33,7 +33,6 @@ func GetTreinoByID(db *sql.DB) http.Handler {
 			return
 		}
 
-		// Path esperado: /api/treinos/{id}
 		idStr := strings.TrimPrefix(r.URL.Path, "/api/treinos/")
 		if idStr == "" || strings.Contains(idStr, "/") {
 			http.NotFound(w, r)
@@ -47,14 +46,20 @@ func GetTreinoByID(db *sql.DB) http.Handler {
 
 		var d TreinoDetail
 		d.ID = id
-		err = db.QueryRow(`SELECT objetivo, nivel, dias, divisao FROM treinos WHERE id=$1`, id).
-			Scan(&d.Objetivo, &d.Nivel, &d.Dias, &d.Divisao)
+		var coach sql.NullString
+		err = db.QueryRow(`SELECT objetivo, nivel, dias, divisao, coach_notes FROM treinos WHERE id=$1`, id).
+			Scan(&d.Objetivo, &d.Nivel, &d.Dias, &d.Divisao, &coach)
 		if err == sql.ErrNoRows {
 			http.NotFound(w, r)
 			return
-		} else if err != nil {
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if coach.Valid {
+			s := coach.String
+			d.CoachNotes = &s
 		}
 
 		rows, err := db.Query(`
