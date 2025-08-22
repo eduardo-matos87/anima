@@ -4,57 +4,64 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strconv"
-	"strings"
+	"time"
 )
 
-type ExerciseItem struct {
-	ID    int64  `json:"id"`
-	Nome  string `json:"nome"`
-	Grupo string `json:"grupo"`
+type GenerateTreinoReq struct {
+	Objetivo string `json:"objetivo"`
+	Nivel    string `json:"nivel"`
+	Divisao  string `json:"divisao"`
 }
 
-type ListExercisesResp struct {
-	Items []ExerciseItem `json:"items"`
+type ExercicioResp struct {
+	Nome        string `json:"nome"`
+	Series      int    `json:"series"`
+	Repeticoes  string `json:"repeticoes"`
+	DescansoSeg int    `json:"descanso_seg"`
 }
 
-func ListExercises(db *sql.DB) http.Handler {
+type GenerateTreinoResp struct {
+	TreinoID   string          `json:"treino_id"`
+	Exercicios []ExercicioResp `json:"exercicios"`
+}
+
+// GenerateTreino retorna um http.Handler (compatível com main.go)
+func GenerateTreino(_ *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := strings.TrimSpace(r.URL.Query().Get("q"))
-		grupo := strings.TrimSpace(r.URL.Query().Get("grupo"))
-
-		base := `SELECT id, nome, grupo FROM exercises WHERE 1=1`
-		args := []any{}
-
-		if q != "" {
-			base += ` AND nome ILIKE ` + place(len(args)+1)
-			args = append(args, "%"+q+"%")
-		}
-		if grupo != "" {
-			base += ` AND lower(grupo) = lower(` + place(len(args)+1) + `)`
-			args = append(args, grupo)
-		}
-		base += ` ORDER BY nome LIMIT 100`
-
-		rows, err := db.Query(base, args...)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		defer rows.Close()
 
-		var items []ExerciseItem
-		for rows.Next() {
-			var it ExerciseItem
-			if err := rows.Scan(&it.ID, &it.Nome, &it.Grupo); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			items = append(items, it)
+		var req GenerateTreinoReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "json inválido", http.StatusBadRequest)
+			return
 		}
+
+		// Mock simples — depois trocamos por SELECTs em exercises
+		pool := []string{
+			"Agachamento Livre", "Supino Reto", "Levantamento Terra",
+			"Remada Curvada", "Desenvolvimento Militar", "Puxada na Frente",
+			"Rosca Direta", "Tríceps Testa", "Elevação Lateral",
+		}
+
+		exs := make([]ExercicioResp, 0, 6)
+		for i := 0; i < 6 && i < len(pool); i++ {
+			exs = append(exs, ExercicioResp{
+				Nome:        pool[i],
+				Series:      3 + (i % 2), // 3 ou 4
+				Repeticoes:  "8-12",
+				DescansoSeg: 60 + (i%3)*30, // 60/90/120
+			})
+		}
+
+		resp := GenerateTreinoResp{
+			TreinoID:   time.Now().Format("20060102T150405"),
+			Exercicios: exs,
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(ListExercisesResp{Items: items})
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 }
-
-func place(i int) string { return "$" + strconv.Itoa(i) }

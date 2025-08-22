@@ -26,7 +26,7 @@ func SaveTreino(_ *sql.DB) http.Handler {
 			http.Error(w, "json inválido", http.StatusBadRequest)
 			return
 		}
-		// TODO: INSERT em treinos/treino_exercicios
+		// TODO: INSERT em treinos e treino_exercicios
 		w.WriteHeader(http.StatusCreated)
 	})
 }

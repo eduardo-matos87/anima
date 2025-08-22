@@ -14,43 +14,48 @@ import (
 )
 
 func main() {
-	// Configurações via env
+	// ===== Config =====
 	port := getenv("PORT", "8081")
 	dsn := getenv("DATABASE_URL", "postgres://anima:anima@localhost:5432/anima?sslmode=disable")
 
-	// Conexão com Postgres
+	// ===== DB =====
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("erro abrindo conexão Postgres: %v", err)
 	}
 	defer db.Close()
 
-	// Teste rápido de conexão (não derruba o servidor se falhar)
+	// ping inicial (não derruba o servidor se falhar)
 	if err := pingWithTimeout(db, 3*time.Second); err != nil {
 		log.Printf("⚠️ aviso: ping ao Postgres falhou: %v", err)
 	}
 
-	// Rotas
+	// ===== Rotas =====
 	mux := http.NewServeMux()
 
-	// Healthcheck simples (valida DB a cada chamada)
+	// Healthcheck: checa DB a cada chamada
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := pingWithTimeout(db, 1*time.Second); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("db: down"))
+			_, _ = w.Write([]byte("db: down"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 
-	// Geração de treino
+	// Compat legada (antes era sem /api)
 	mux.Handle("/treinos/generate", handlers.GenerateTreino(db))
 
-	// Middleware CORS básico
+	// API v0
+	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db))
+	mux.Handle("/api/exercises", handlers.ListExercises(db))
+	mux.Handle("/api/treinos", handlers.SaveTreino(db)) // stub de persistência
+
+	// ===== Middlewares =====
 	handler := withCORS(mux)
 
-	// Servidor HTTP
+	// ===== Servidor =====
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      handler,
@@ -67,7 +72,7 @@ func main() {
 
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Ajuste a origem se quiser restringir
+		// ajuste a origem conforme necessário
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")

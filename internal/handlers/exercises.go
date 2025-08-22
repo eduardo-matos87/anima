@@ -52,6 +52,7 @@ func ListExercises(db *sql.DB) http.Handler {
 			}
 			items = append(items, it)
 		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(ListExercisesResp{Items: items})
 	})
