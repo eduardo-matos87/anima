@@ -50,7 +50,8 @@ func main() {
 	// API v0
 	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db))
 	mux.Handle("/api/exercises", handlers.ListExercises(db))
-	mux.Handle("/api/treinos", handlers.SaveTreino(db)) // stub de persistência
+	mux.Handle("/api/treinos", handlers.SaveTreino(db))     // stub de persistência
+	mux.Handle("/api/treinos/", handlers.GetTreinoByID(db)) // GET /api/treinos/{id}
 
 	// ===== Middlewares =====
 	handler := withCORS(mux)
