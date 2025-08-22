@@ -3,21 +3,25 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
+
+	"github.com/lib/pq"
 )
 
 type SaveTreinoReq struct {
-	TreinoID   string `json:"treino_id"` // opcional: id lógico gerado no /generate
-	Objetivo   string `json:"objetivo"`  // bate com treinos.objetivo
-	Nivel      string `json:"nivel"`     // bate com treinos.nivel
-	Dias       int    `json:"dias"`      // ⚠️ obrigatório (treinos.dias é NOT NULL)
-	Divisao    string `json:"divisao"`   // bate com treinos.divisao
-	Exercicios []struct {
-		ExercicioID int64  `json:"exercicio_id"` // ⚠️ casa com treino_exercicios.exercicio_id (FK -> exercises.id)
-		Series      int    `json:"series"`       // precisa da migration 011
-		Repeticoes  string `json:"repeticoes"`   // precisa da migration 011
-	} `json:"exercicios"`
+	TreinoID   string              `json:"treino_id"` // key lógica opcional/única
+	Objetivo   string              `json:"objetivo"`
+	Nivel      string              `json:"nivel"`
+	Dias       int                 `json:"dias"`
+	Divisao    string              `json:"divisao"`
+	CoachNotes *string             `json:"coach_notes,omitempty"`
+	Exercicios []SaveTreinoItemReq `json:"exercicios"`
+}
+
+type SaveTreinoItemReq struct {
+	ExercicioID int64  `json:"exercicio_id"`
+	Series      int    `json:"series"`
+	Repeticoes  string `json:"repeticoes"`
 }
 
 type SaveTreinoResp struct {
@@ -37,12 +41,8 @@ func SaveTreino(db *sql.DB) http.Handler {
 			http.Error(w, "json inválido", http.StatusBadRequest)
 			return
 		}
-		if req.Dias <= 0 || req.Nivel == "" || req.Objetivo == "" || req.Divisao == "" {
-			http.Error(w, "campos obrigatórios: objetivo, nivel, dias, divisao", http.StatusBadRequest)
-			return
-		}
-		if len(req.Exercicios) == 0 {
-			http.Error(w, "exercicios obrigatórios", http.StatusBadRequest)
+		if req.Objetivo == "" || req.Nivel == "" || req.Dias <= 0 || req.Divisao == "" || len(req.Exercicios) == 0 {
+			http.Error(w, "campos obrigatórios ausentes", http.StatusBadRequest)
 			return
 		}
 
@@ -51,58 +51,60 @@ func SaveTreino(db *sql.DB) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer func() {
-			if err != nil {
-				_ = tx.Rollback()
-			}
-		}()
+		defer func() { _ = tx.Rollback() }()
 
-		// INSERT em treinos
 		var treinoDBID int64
 		err = tx.QueryRow(`
-			INSERT INTO treinos (nivel, objetivo, dias, divisao, treino_key)
-			VALUES ($1, $2, $3, $4, NULLIF($5, ''))
+			INSERT INTO treinos (nivel, objetivo, dias, divisao, treino_key, coach_notes)
+			VALUES ($1, $2, $3, $4, NULLIF($5,''), NULLIF($6,''))
 			RETURNING id
-		`, req.Nivel, req.Objetivo, req.Dias, req.Divisao, req.TreinoID).Scan(&treinoDBID)
-
+		`, req.Nivel, req.Objetivo, req.Dias, req.Divisao, req.TreinoID, optStr(req.CoachNotes)).Scan(&treinoDBID)
 		if err != nil {
-			http.Error(w, "erro ao criar treino: "+err.Error(), http.StatusInternalServerError)
+			// se for violação de unicidade (treino_key único), responder 409
+			if pgErr, ok := err.(*pq.Error); ok && pgErr.Code == "23505" {
+				http.Error(w, "treino_id já existe", http.StatusConflict)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// INSERT itens
 		stmt, err := tx.Prepare(`
 			INSERT INTO treino_exercicios (treino_id, exercicio_id, series, repeticoes)
 			VALUES ($1, $2, $3, $4)
 		`)
 		if err != nil {
-			http.Error(w, "erro preparando insert de exercícios: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer stmt.Close()
 
-		for _, e := range req.Exercicios {
-			if e.ExercicioID == 0 || e.Series <= 0 || e.Repeticoes == "" {
-				err = errors.New("exercicio_id/series/repeticoes inválidos")
-				http.Error(w, err.Error(), http.StatusBadRequest)
+		for _, it := range req.Exercicios {
+			if it.ExercicioID <= 0 || it.Series <= 0 || it.Repeticoes == "" {
+				http.Error(w, "item inválido em exercicios", http.StatusBadRequest)
 				return
 			}
-			if _, err = stmt.Exec(treinoDBID, e.ExercicioID, e.Series, e.Repeticoes); err != nil {
-				http.Error(w, "erro ao inserir exercício: "+err.Error(), http.StatusInternalServerError)
+			if _, err := stmt.Exec(treinoDBID, it.ExercicioID, it.Series, it.Repeticoes); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
 
-		if err = tx.Commit(); err != nil {
-			http.Error(w, "erro ao salvar treino: "+err.Error(), http.StatusInternalServerError)
+		if err := tx.Commit(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(SaveTreinoResp{
-			ID:       treinoDBID,
-			TreinoID: req.TreinoID,
-		})
+		_ = json.NewEncoder(w).Encode(SaveTreinoResp{ID: treinoDBID, TreinoID: req.TreinoID})
 	})
+}
+
+// retorna nil se ponteiro vazio/nil – pra evitar gravar ""
+func optStr(p *string) any {
+	if p == nil || *p == "" {
+		return nil
+	}
+	return *p
 }
