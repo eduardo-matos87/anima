@@ -45,13 +45,16 @@ func main() {
 	})
 
 	// Compat legada (antes era sem /api)
-	mux.Handle("/treinos/generate", handlers.GenerateTreino(db))
+	mux.Handle("/treinos/generate", handlers.GenerateTreino(db)) // POST
 
 	// API v0
-	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db))
-	mux.Handle("/api/exercises", handlers.ListExercises(db))
-	mux.Handle("/api/treinos", handlers.SaveTreino(db))     // stub de persistência
-	mux.Handle("/api/treinos/", handlers.GetTreinoByID(db)) // GET /api/treinos/{id}
+	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db)) // POST
+	mux.Handle("/api/exercises", handlers.ListExercises(db))         // GET
+	mux.Handle("/api/treinos", handlers.SaveTreino(db))              // POST (SEM barra no final)
+
+	// Treinos (leitura)
+	mux.Handle("/api/treinos/by-key/", handlers.GetTreinoByKey(db)) // GET /api/treinos/by-key/{key}
+	mux.Handle("/api/treinos/", handlers.GetTreinoByID(db))         // GET /api/treinos/{id}
 
 	// ===== Middlewares =====
 	handler := withCORS(mux)

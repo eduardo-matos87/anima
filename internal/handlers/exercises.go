@@ -23,18 +23,19 @@ func ListExercises(db *sql.DB) http.Handler {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		grupo := strings.TrimSpace(r.URL.Query().Get("grupo"))
 
-		base := `SELECT id, nome, grupo FROM exercises WHERE 1=1`
+		// ⚠️ Lê da tabela EN: exercises
+		base := `SELECT id, name AS nome, muscle_group AS grupo FROM exercises WHERE 1=1`
 		args := []any{}
 
 		if q != "" {
-			base += ` AND nome ILIKE ` + place(len(args)+1)
+			base += ` AND name ILIKE ` + place(len(args)+1)
 			args = append(args, "%"+q+"%")
 		}
 		if grupo != "" {
-			base += ` AND lower(grupo) = lower(` + place(len(args)+1) + `)`
+			base += ` AND lower(muscle_group) = lower(` + place(len(args)+1) + `)`
 			args = append(args, grupo)
 		}
-		base += ` ORDER BY nome LIMIT 100`
+		base += ` ORDER BY name LIMIT 100`
 
 		rows, err := db.Query(base, args...)
 		if err != nil {
@@ -52,7 +53,6 @@ func ListExercises(db *sql.DB) http.Handler {
 			}
 			items = append(items, it)
 		}
-
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(ListExercisesResp{Items: items})
 	})

@@ -54,3 +54,9 @@ db-drop:
 	@echo "== Drop database =="
 	@psql -h $(PGHOST) -p $(PGPORT) -U $(PGUSER) -c "DROP DATABASE IF EXISTS $(PGDATABASE);" || true
 
+.PHONY: db-schema
+db-schema:
+	@echo "== Exportando schema para docs/ =="
+	@./tools/export_schema.sh
+
+
