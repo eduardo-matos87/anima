@@ -33,7 +33,7 @@ func main() {
 	// ===== Rotas =====
 	mux := http.NewServeMux()
 
-	// Healthcheck: checa DB a cada chamada
+	// Healthcheck
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := pingWithTimeout(db, 1*time.Second); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -44,17 +44,19 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// Compat legada (antes era sem /api)
-	mux.Handle("/treinos/generate", handlers.GenerateTreino(db)) // POST
+	// Compat legada
+	mux.Handle("/treinos/generate", handlers.GenerateTreino(db))
 
-	// API v0
-	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db)) // POST
-	mux.Handle("/api/exercises", handlers.ListExercises(db))         // GET
-	mux.Handle("/api/treinos", handlers.SaveTreino(db))              // POST (SEM barra no final)
-
-	// Treinos (leitura)
+	// API treinos
+	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db))
+	mux.Handle("/api/exercises", handlers.ListExercises(db))
+	mux.Handle("/api/treinos", handlers.SaveTreino(db))             // POST
 	mux.Handle("/api/treinos/by-key/", handlers.GetTreinoByKey(db)) // GET /api/treinos/by-key/{key}
 	mux.Handle("/api/treinos/", handlers.GetTreinoByID(db))         // GET /api/treinos/{id}
+
+	// API Perfil & Métricas
+	mux.Handle("/api/me/profile", handlers.UserProfile(db)) // GET/PUT
+	mux.Handle("/api/me/metrics", handlers.UserMetrics(db)) // GET/POST
 
 	// ===== Middlewares =====
 	handler := withCORS(mux)
@@ -76,9 +78,8 @@ func main() {
 
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// ajuste a origem conforme necessário
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
