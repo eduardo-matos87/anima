@@ -23,19 +23,21 @@ func ListExercises(db *sql.DB) http.Handler {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		grupo := strings.TrimSpace(r.URL.Query().Get("grupo"))
 
-		// ⚠️ Lê da tabela EN: exercises
+		limit := clampInt(parseInt(r.URL.Query().Get("limit"), 100), 1, 500)
+
+		// Usa tabela EN e busca sem acento
 		base := `SELECT id, name AS nome, muscle_group AS grupo FROM exercises WHERE 1=1`
 		args := []any{}
 
 		if q != "" {
-			base += ` AND name ILIKE ` + place(len(args)+1)
+			base += ` AND unaccent(name) ILIKE unaccent(` + place(len(args)+1) + `)`
 			args = append(args, "%"+q+"%")
 		}
 		if grupo != "" {
-			base += ` AND lower(muscle_group) = lower(` + place(len(args)+1) + `)`
+			base += ` AND lower(unaccent(muscle_group)) = lower(unaccent(` + place(len(args)+1) + `))`
 			args = append(args, grupo)
 		}
-		base += ` ORDER BY name LIMIT 100`
+		base += ` ORDER BY name LIMIT ` + strconv.Itoa(limit)
 
 		rows, err := db.Query(base, args...)
 		if err != nil {
@@ -57,5 +59,3 @@ func ListExercises(db *sql.DB) http.Handler {
 		_ = json.NewEncoder(w).Encode(ListExercisesResp{Items: items})
 	})
 }
-
-func place(i int) string { return "$" + strconv.Itoa(i) }
