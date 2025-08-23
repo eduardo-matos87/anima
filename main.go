@@ -44,20 +44,27 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// Compat legada
+	// Compat legada (antes era sem /api)
 	mux.Handle("/treinos/generate", handlers.GenerateTreino(db))
 
-	// API treinos
-	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db))
-	mux.Handle("/api/exercises", handlers.ListExercises(db))
-	mux.Handle("/api/treinos", handlers.SaveTreino(db))             // POST
-	mux.Handle("/api/treinos/by-key/", handlers.GetTreinoByKey(db)) // GET /api/treinos/by-key/{key}
-	mux.Handle("/api/treinos/", handlers.GetTreinoByID(db))         // GET /api/treinos/{id}
-	mux.Handle("/api/me/summary", handlers.MeSummaryHandler(db))    // GET
+	// ===== API =====
 
-	// API Perfil & Métricas
-	mux.Handle("/api/me/profile", handlers.UserProfile(db)) // GET/PUT
-	mux.Handle("/api/me/metrics", handlers.UserMetrics(db)) // GET/POST
+	// Perfil & Métricas
+	mux.Handle("/api/me/profile", handlers.UserProfile(db))      // GET/PUT
+	mux.Handle("/api/me/metrics", handlers.UserMetrics(db))      // GET/POST
+	mux.Handle("/api/me/summary", handlers.MeSummaryHandler(db)) // GET
+
+	// Exercícios (catálogo)
+	mux.Handle("/api/exercises", handlers.ListExercises(db)) // GET
+
+	// Treinos
+	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db)) // POST
+	// Coleção: GET (lista paginada/buscável) + POST (salvar)
+	mux.Handle("/api/treinos", handlers.TreinosCollection(db))
+	// by-key é mais específico e não conflita com /api/treinos/
+	mux.Handle("/api/treinos/by-key/", handlers.GetTreinoByKey(db)) // GET /api/treinos/by-key/{key}
+	// Item: GET por ID + PATCH (coach_notes)
+	mux.Handle("/api/treinos/", handlers.TreinosItem(db)) // /api/treinos/{id}
 
 	// ===== Middlewares =====
 	handler := withCORS(mux)
@@ -81,7 +88,7 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
