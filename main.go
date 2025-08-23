@@ -66,6 +66,9 @@ func main() {
 	// Item: GET por ID + PATCH (coach_notes)
 	mux.Handle("/api/treinos/", handlers.TreinosItem(db)) // /api/treinos/{id}
 
+	// Weekly planner (preview, não persiste)
+	mux.Handle("/api/plan/weekly", handlers.PlanWeekly(db)) // GET ?divisao=...&objetivo=...&nivel=...&days=...
+
 	// ===== Middlewares =====
 	handler := withCORS(mux)
 
