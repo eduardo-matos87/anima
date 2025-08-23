@@ -69,6 +69,9 @@ func main() {
 	// Weekly planner (preview, não persiste)
 	mux.Handle("/api/plan/weekly", handlers.PlanWeekly(db)) // GET ?divisao=...&objetivo=...&nivel=...&days=...
 
+	// Weekly planner (persistente): cria vários treinos de uma vez
+	mux.Handle("/api/plan/weekly/save", handlers.PlanWeeklySave(db)) // POST
+
 	// ===== Middlewares =====
 	handler := withCORS(mux)
 
