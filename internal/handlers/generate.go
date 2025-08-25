@@ -14,12 +14,12 @@ import (
 // ====== Tipos de request/response
 
 type GenerateReq struct {
-	Objetivo string `json:"objetivo"`            // ex: "hipertrofia", "emagrecimento", "forca", "resistencia"
-	Nivel    string `json:"nivel"`               // ex: "iniciante", "intermediario", "avancado"
-	Divisao  string `json:"divisao"`             // ex: "fullbody" (por ora não influencia a lógica)
-	Dias     int    `json:"dias,omitempty"`      // default 3
-	Persist  *bool  `json:"persist,omitempty"`   // default: true (persiste automaticamente)
-	TreinoID string `json:"treino_id,omitempty"` // opcional para fixar a chave lógica (única)
+	Objetivo string `json:"objetivo"`            // "hipertrofia" | "emagrecimento" | "forca/força" | "resistencia/resistência"
+	Nivel    string `json:"nivel"`               // "iniciante" | "intermediario" | "avancado"
+	Divisao  string `json:"divisao"`             // "fullbody" | "upper" | "lower" | "upperlower" | "ppl" | "push" | "pull" | "legs"
+	Dias     int    `json:"dias,omitempty"`      // default 3 (hint)
+	Persist  *bool  `json:"persist,omitempty"`   // default: true (persiste)
+	TreinoID string `json:"treino_id,omitempty"` // opcional: fixa chave lógica
 }
 
 type GeneratedExercise struct {
@@ -27,11 +27,12 @@ type GeneratedExercise struct {
 	Nome        string `json:"nome"`
 	Series      int    `json:"series"`
 	Repeticoes  string `json:"repeticoes"`
+	DescansoSeg int    `json:"descanso_seg,omitempty"` // 🆕 descanso entre séries
 }
 
 type GenerateResp struct {
 	ID         *int                `json:"id,omitempty"` // presente se persistido
-	TreinoID   string              `json:"treino_id"`    // key lógica (gerada se não informada)
+	TreinoID   string              `json:"treino_id"`    // key lógica
 	Exercicios []GeneratedExercise `json:"exercicios"`   // plano gerado
 	CoachNotes string              `json:"coach_notes,omitempty"`
 }
@@ -50,13 +51,8 @@ func GenerateTreino(db *sql.DB) http.Handler {
 			http.Error(w, "json inválido", http.StatusBadRequest)
 			return
 		}
-		// sane defaults
-		req.Objetivo = strings.TrimSpace(strings.ToLower(req.Objetivo))
-		req.Nivel = strings.TrimSpace(strings.ToLower(req.Nivel))
-		req.Divisao = strings.TrimSpace(strings.ToLower(req.Divisao))
-		if req.Dias <= 0 {
-			req.Dias = 3
-		}
+
+		normalizeReq(&req)
 		if req.Objetivo == "" || req.Nivel == "" || req.Divisao == "" {
 			http.Error(w, "campos obrigatórios: objetivo, nivel, divisao", http.StatusBadRequest)
 			return
@@ -66,16 +62,16 @@ func GenerateTreino(db *sql.DB) http.Handler {
 			persist = *req.Persist
 		}
 
-		uid := getUserID(r) // permanece igual ao restante do projeto
+		uid := getUserID(r)
 
-		// ===== Perfil + métricas =====
+		// Perfil + métrica recente
 		prof, _ := loadUserProfile(r.Context(), db, uid)
 		if wkg, _ := latestWeight(r.Context(), db, uid); wkg != nil {
 			prof.WeightKG = wkg
 		}
 
-		// ===== Seleção de exercícios a partir da tabela exercises =====
-		exs, err := buildPlanFromCatalog(r.Context(), db, req)
+		// Plano com diversidade por grupo + divisão (v1.1) + descanso
+		exs, err := buildPlanV11(r.Context(), db, req)
 		if err != nil {
 			http.Error(w, "falha ao montar plano: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -85,13 +81,13 @@ func GenerateTreino(db *sql.DB) http.Handler {
 			return
 		}
 
-		// ===== Coach notes (somente se use_ai=true no perfil) =====
+		// Coach notes (se use_ai = true)
 		coach := ""
 		if prof.UseAI == nil || *prof.UseAI {
 			coach = buildCoachNotes(req, prof)
 		}
 
-		// ===== Persistência opcional =====
+		// Persistência opcional
 		key := req.TreinoID
 		if key == "" {
 			key = "gen-" + time.Now().Format("20060102T150405")
@@ -101,7 +97,6 @@ func GenerateTreino(db *sql.DB) http.Handler {
 		if persist {
 			id, err := persistPlan(r.Context(), db, key, req, coach, exs)
 			if err != nil {
-				// conflito de treino_id único, tente outro automático
 				if strings.Contains(err.Error(), "duplicate key") {
 					key = "gen-" + time.Now().Format("20060102T150405.000")
 					id, err = persistPlan(r.Context(), db, key, req, coach, exs)
@@ -114,7 +109,6 @@ func GenerateTreino(db *sql.DB) http.Handler {
 			insertedID = &id
 			w.WriteHeader(http.StatusCreated)
 		} else {
-			// preview
 			w.WriteHeader(http.StatusOK)
 		}
 
@@ -129,73 +123,313 @@ func GenerateTreino(db *sql.DB) http.Handler {
 	})
 }
 
-// ====== Lógica de plano (consulta em exercises)
+// ====== v1.1 + descanso: diversidade por grupo + divisão
 
-func buildPlanFromCatalog(ctx context.Context, db *sql.DB, req GenerateReq) ([]GeneratedExercise, error) {
-	// alvo: 6 exercícios no plano base
-	const target = 6
+func buildPlanV11(ctx context.Context, db *sql.DB, req GenerateReq) ([]GeneratedExercise, error) {
+	target := 6 // nº-alvo por sessão
 
-	// 1) Preferência por nível
-	es, err := queryExercises(ctx, db, req.Nivel, target)
-	if err != nil {
-		return nil, err
-	}
-	// 2) Se faltou, complementa sem filtro de nível
-	if len(es) < target {
-		rest, err := queryExercises(ctx, db, "", target-len(es))
+	// grupos da sessão conforme divisão
+	sessionGroups := groupsForDivision(req.Divisao)
+
+	// 1) tenta 1 exercício por grupo-alvo (em ordem)
+	var pool []exRow
+	for _, g := range sessionGroups {
+		row, err := queryFirstByGroup(ctx, db, g, req.Nivel)
 		if err != nil {
 			return nil, err
 		}
-		es = append(es, rest...)
+		if row != nil {
+			pool = append(pool, *row)
+		}
 	}
-	if len(es) == 0 {
+
+	// 2) completa com catálogo geral do nível (sem repetir IDs)
+	if len(pool) < target {
+		rest, err := queryExercises(ctx, db, req.Nivel, target-len(pool))
+		if err != nil {
+			return nil, err
+		}
+		used := make(map[int]struct{}, len(pool))
+		for _, r := range pool {
+			used[r.id] = struct{}{}
+		}
+		for _, r := range rest {
+			if _, seen := used[r.id]; seen {
+				continue
+			}
+			pool = append(pool, r)
+			if len(pool) == target {
+				break
+			}
+		}
+	}
+
+	if len(pool) == 0 {
 		return nil, nil
 	}
-	if len(es) > target {
-		es = es[:target]
+	if len(pool) > target {
+		pool = pool[:target]
 	}
 
-	// 3) Atribui séries/reps conforme objetivo
-	var reps string
-	switch req.Objetivo {
-	case "hipertrofia":
-		reps = "8-12"
-	case "emagrecimento":
-		reps = "12-15"
-	case "forca", "força":
-		reps = "4-6"
-	case "resistencia", "resistência":
-		reps = "12-20"
-	default:
-		reps = "8-12"
-	}
+	reps := repsByGoal(req.Objetivo)
 
-	out := make([]GeneratedExercise, 0, len(es))
-	for i, it := range es {
+	out := make([]GeneratedExercise, 0, len(pool))
+	for i, it := range pool {
 		series := 3
-		// pequeno ajuste por “intensidade”
 		if req.Objetivo == "hipertrofia" && i%2 == 1 {
 			series = 4
 		}
+		rest := restForExercise(req.Objetivo, req.Nivel, it) // 🆕 descanso por exercício
+
 		out = append(out, GeneratedExercise{
 			ExercicioID: it.id,
 			Nome:        it.name,
 			Series:      series,
 			Repeticoes:  reps,
+			DescansoSeg: rest,
 		})
 	}
 	return out, nil
 }
 
-type exRow struct {
-	id   int
-	name string
+func repsByGoal(goal string) string {
+	switch strings.ToLower(goal) {
+	case "hipertrofia":
+		return "8-12"
+	case "emagrecimento":
+		return "12-15"
+	case "forca", "força":
+		return "4-6"
+	case "resistencia", "resistência":
+		return "12-20"
+	default:
+		return "8-12"
+	}
 }
 
+// ====== Heurística de descanso
+
+type exRow struct {
+	id           int
+	name         string
+	muscleGroup  string
+	difficulty   string
+	isBodyweight bool
+}
+
+// Define descanso base por objetivo, ajusta por composto/isolado, peso corporal e dificuldade.
+// Intervalos alvo (heurística segura):
+// - hipertrofia: 60–90s; compostos tendem a ~90s, isolados ~60–75s
+// - força: 120–180s; compostos mais altos (~150–180s)
+// - emagrecimento/resistência: 30–60s
+func restForExercise(goal, nivel string, ex exRow) int {
+	goal = strings.ToLower(strings.TrimSpace(goal))
+	nivel = strings.ToLower(strings.TrimSpace(nivel))
+
+	// base por objetivo
+	base := 75 // default
+	switch goal {
+	case "hipertrofia":
+		base = 75
+	case "emagrecimento", "resistencia", "resistência":
+		base = 45
+	case "forca", "força":
+		base = 150
+	}
+
+	// composto vs isolado
+	if isCompound(ex.name, ex.muscleGroup) {
+		base += 30 // compostos pedem mais recuperação
+	} else {
+		base -= 10 // isolados, um pouco menos
+	}
+
+	// peso corporal costuma exigir menos descanso que máximos pesados
+	if ex.isBodyweight {
+		base -= 10
+	}
+
+	// ajuste por dificuldade
+	switch nivel {
+	case "iniciante":
+		// manter faixas moderadas
+		if base > 90 && (goal == "hipertrofia" || goal == "emagrecimento" || strings.HasPrefix(goal, "resist")) {
+			base = 90
+		}
+	case "avancado":
+		// para força avançada, um pouco mais
+		if goal == "forca" || goal == "força" {
+			base += 15
+		}
+	}
+
+	// clamp por objetivo
+	switch goal {
+	case "hipertrofia":
+		return clampRest(base, 60, 105)
+	case "forca", "força":
+		return clampRest(base, 120, 180)
+	case "emagrecimento", "resistencia", "resistência":
+		return clampRest(base, 30, 75)
+	default:
+		return clampRest(base, 45, 105)
+	}
+}
+
+func clampRest(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// heurística simples para detectar composto
+func isCompound(name, mg string) bool {
+	n := strings.ToLower(name)
+	m := strings.ToLower(mg)
+	// palavras-chave de compostos
+	kw := []string{
+		"agachamento", "squat",
+		"supino", "bench",
+		"terra", "deadlift",
+		"remada", "row",
+		"desenvolvimento", "overhead", "press",
+		"levantamento", "clean", "snatch",
+		"barra fixa", "pull-up", "chin-up",
+		"paralela", "dip",
+		"lunge", "passada",
+		"puxada", "lat pulldown",
+	}
+	for _, k := range kw {
+		if strings.Contains(n, k) {
+			return true
+		}
+	}
+	// grupos que costumam ser compostos quando o nome é genérico
+	if m == "peito" || m == "costas" || m == "pernas" || m == "quadriceps" || m == "posterior" || m == "gluteos" || m == "lombar" {
+		if strings.Contains(n, "com barra") || strings.Contains(n, "livre") {
+			return true
+		}
+	}
+	return false
+}
+
+// ====== Divisão / grupos
+
+func groupsForDivision(div string) []string {
+	d := strings.ToLower(strings.TrimSpace(div))
+	switch d {
+	case "upper", "upperlower":
+		return []string{"peito", "costas", "ombros", "biceps", "triceps", "core"}
+	case "lower":
+		return []string{"quadriceps", "posterior", "gluteos", "panturrilhas", "lombar", "core"}
+	case "ppl", "push":
+		return []string{"peito", "ombros", "triceps", "core", "quadriceps", "panturrilhas"}
+	case "pull":
+		return []string{"costas", "lombar", "biceps", "posterior", "core", "trapézio"}
+	case "legs":
+		return []string{"quadriceps", "posterior", "gluteos", "panturrilhas", "lombar", "core"}
+	default: // fullbody
+		return []string{"peito", "costas", "pernas", "ombros", "core", "biceps", "triceps"}
+	}
+}
+
+func normalizeGroupName(g string) []string {
+	g = strings.ToLower(strings.TrimSpace(g))
+	switch g {
+	case "peito", "chest":
+		return []string{"peito", "chest"}
+	case "costas", "back":
+		return []string{"costas", "back"}
+	case "ombros", "ombro", "shoulders", "delts", "deltoids":
+		return []string{"ombros", "shoulders"}
+	case "biceps", "bíceps", "arms", "arm", "bis":
+		return []string{"biceps", "arms"}
+	case "triceps", "tríceps", "tris":
+		return []string{"triceps", "arms"}
+	case "core", "abdomen", "abs":
+		return []string{"core", "abs"}
+	case "pernas", "legs", "lower":
+		return []string{"pernas", "legs"}
+	case "quadriceps", "quads":
+		return []string{"quadriceps", "pernas", "legs"}
+	case "posterior", "posterior de coxa", "hamstrings", "hams":
+		return []string{"posterior", "pernas", "legs", "hamstrings"}
+	case "gluteos", "glúteos", "glutes":
+		return []string{"gluteos", "pernas", "legs", "glutes"}
+	case "panturrilhas", "calves":
+		return []string{"panturrilhas", "pernas", "legs", "calves"}
+	case "lombar", "lower back":
+		return []string{"lombar", "costas", "back", "lower back"}
+	case "trapézio", "trapezio", "traps":
+		return []string{"trapézio", "trapezio", "costas", "back", "traps"}
+	default:
+		if g != "" {
+			return []string{g}
+		}
+		return []string{}
+	}
+}
+
+// ====== Acesso ao catálogo
+
+// pega 1 exercício do grupo (normalizado), preferindo por nível
+func queryFirstByGroup(ctx context.Context, db *sql.DB, group string, nivel string) (*exRow, error) {
+	var row exRow
+
+	alts := normalizeGroupName(group)
+	if len(alts) == 0 {
+		return nil, nil
+	}
+	inList := "'" + strings.Join(alts, "','") + "'"
+
+	q := `
+		SELECT id, name, lower(muscle_group) AS mg, lower(difficulty) AS diff,
+		       COALESCE(is_bodyweight, false) AS bw
+		FROM exercises
+		WHERE lower(muscle_group) IN (` + inList + `)
+	`
+	args := []any{}
+	if nivel != "" {
+		q += ` AND lower(difficulty) = $1 `
+		args = append(args, strings.ToLower(nivel))
+	}
+	q += ` ORDER BY id ASC LIMIT 1`
+
+	err := db.QueryRowContext(ctx, q, args...).Scan(&row.id, &row.name, &row.muscleGroup, &row.difficulty, &row.isBodyweight)
+	if err == sql.ErrNoRows {
+		// sem filtro de nível
+		q2 := `
+			SELECT id, name, lower(muscle_group) AS mg, lower(difficulty) AS diff,
+			       COALESCE(is_bodyweight, false) AS bw
+			FROM exercises
+			WHERE lower(muscle_group) IN (` + inList + `)
+			ORDER BY id ASC LIMIT 1
+		`
+		err2 := db.QueryRowContext(ctx, q2).Scan(&row.id, &row.name, &row.muscleGroup, &row.difficulty, &row.isBodyweight)
+		if err2 == sql.ErrNoRows {
+			return nil, nil
+		}
+		if err2 != nil {
+			return nil, err2
+		}
+		return &row, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// catálogo geral (por nível, fallback sem nível)
 func queryExercises(ctx context.Context, db *sql.DB, nivel string, limit int) ([]exRow, error) {
 	args := []any{}
 	q := `
-		SELECT id, name
+		SELECT id, name, lower(muscle_group) AS mg, lower(difficulty) AS diff,
+		       COALESCE(is_bodyweight, false) AS bw
 		FROM exercises
 	`
 	if nivel != "" {
@@ -214,7 +448,7 @@ func queryExercises(ctx context.Context, db *sql.DB, nivel string, limit int) ([
 	var out []exRow
 	for rows.Next() {
 		var r exRow
-		if err := rows.Scan(&r.id, &r.name); err != nil {
+		if err := rows.Scan(&r.id, &r.name, &r.muscleGroup, &r.difficulty, &r.isBodyweight); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -264,7 +498,16 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-// ====== Coach notes (reaproveita helpers do projeto)
+// ====== Helpers já existentes no projeto (tipos/funcs usados aqui)
+
+func normalizeReq(req *GenerateReq) {
+	req.Objetivo = strings.TrimSpace(strings.ToLower(req.Objetivo))
+	req.Nivel = strings.TrimSpace(strings.ToLower(req.Nivel))
+	req.Divisao = strings.TrimSpace(strings.ToLower(req.Divisao))
+	if req.Dias <= 0 {
+		req.Dias = 3
+	}
+}
 
 func buildCoachNotes(req GenerateReq, p userProfile) string {
 	obj := req.Objetivo

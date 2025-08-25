@@ -3,15 +3,57 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"anima/internal/handlers"
 
 	_ "github.com/lib/pq"
 )
+
+func getenv(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+// /docs com ReDoc (serve /openapi.yaml de ./docs)
+func docsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Anima API Docs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style> html,body{height:100%} body{margin:0} </style>
+</head>
+<body>
+  <redoc spec-url="/openapi.yaml"></redoc>
+  <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>`)
+}
+
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, PUT, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func main() {
 	// ===== Config =====
@@ -21,97 +63,198 @@ func main() {
 	// ===== DB =====
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatalf("erro abrindo conexão Postgres: %v", err)
+		log.Fatalf("erro abrindo Postgres: %v", err)
 	}
-	defer db.Close()
-
-	// ping inicial (não derruba o servidor se falhar)
-	if err := pingWithTimeout(db, 3*time.Second); err != nil {
-		log.Printf("⚠️ aviso: ping ao Postgres falhou: %v", err)
+	if err := db.Ping(); err != nil {
+		log.Fatalf("erro ping Postgres: %v", err)
 	}
+	log.Println("[anima] conectado ao Postgres")
 
-	// ===== Rotas =====
+	// Injeta DB nos novos handlers de histórico
+	handlers.SetSessionsDB(db)
+
+	// ===== Mux =====
 	mux := http.NewServeMux()
 
-	// Healthcheck
+	// Docs
+	mux.Handle("/openapi.yaml", http.StripPrefix("/", http.FileServer(http.Dir("./docs"))))
+	mux.HandleFunc("/docs", docsHandler)
+
+	// Health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := pingWithTimeout(db, 1*time.Second); err != nil {
+		if err := db.Ping(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte("db: down"))
+			fmt.Fprint(w, `{"ok":false}`)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		fmt.Fprint(w, `{"ok":true}`)
 	})
 
-	// Compat legada (antes era sem /api)
-	mux.Handle("/treinos/generate", handlers.GenerateTreino(db))
+	// ===== Catálogo =====
+	// GET /api/exercises
+	mux.HandleFunc("/api/exercises", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.ListExercises(db).ServeHTTP(w, r)
+	})
 
-	// ===== API =====
+	// ===== Treinos (coleção) =====
+	// GET /api/treinos (listagem)
+	// POST /api/treinos (ainda não implementado no repo atual -> 501)
+	mux.HandleFunc("/api/treinos", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handlers.TreinosCollection(db).ServeHTTP(w, r)
+		case http.MethodPost:
+			http.Error(w, "not implemented (POST /api/treinos)", http.StatusNotImplemented)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
-	// Perfil & Métricas
-	mux.Handle("/api/me/profile", handlers.UserProfile(db))      // GET/PUT
-	mux.Handle("/api/me/metrics", handlers.UserMetrics(db))      // GET/POST
-	mux.Handle("/api/me/summary", handlers.MeSummaryHandler(db)) // GET
+	// ===== Treinos (item) =====
+	// GET /api/treinos/{id}
+	// PATCH /api/treinos/{id} (coach_notes ainda não implementado -> 501)
+	// /api/treinos/by-key/{key} não encontrado no repo -> 501
+	mux.HandleFunc("/api/treinos/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
 
-	// Exercícios (catálogo)
-	mux.Handle("/api/exercises", handlers.ListExercises(db)) // GET
+		if strings.HasPrefix(path, "/api/treinos/by-key/") {
+			http.Error(w, "not implemented (/api/treinos/by-key)", http.StatusNotImplemented)
+			return
+		}
 
-	// Treinos
-	mux.Handle("/api/treinos/generate", handlers.GenerateTreino(db)) // POST
-	// Coleção: GET (lista paginada/buscável) + POST (salvar)
-	mux.Handle("/api/treinos", handlers.TreinosCollection(db))
-	// by-key é mais específico e não conflita com /api/treinos/
-	mux.Handle("/api/treinos/by-key/", handlers.GetTreinoByKey(db)) // GET /api/treinos/by-key/{key}
-	// Item: GET por ID + PATCH (coach_notes)
-	mux.Handle("/api/treinos/", handlers.TreinosItem(db)) // /api/treinos/{id}
+		switch r.Method {
+		case http.MethodGet:
+			handlers.TreinosItem(db).ServeHTTP(w, r)
+		case http.MethodPatch:
+			http.Error(w, "not implemented (PATCH /api/treinos/{id})", http.StatusNotImplemented)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
-	// Weekly planner (preview, não persiste)
-	mux.Handle("/api/plan/weekly", handlers.PlanWeekly(db)) // GET ?divisao=...&objetivo=...&nivel=...&days=...
+	// ===== Gerador v1.1 =====
+	// POST /api/treinos/generate
+	mux.HandleFunc("/api/treinos/generate", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.GenerateTreino(db).ServeHTTP(w, r)
+	})
 
-	// Weekly planner (persistente): cria vários treinos de uma vez
-	mux.Handle("/api/plan/weekly/save", handlers.PlanWeeklySave(db)) // POST
+	// Progressive Overload — GET /api/suggestions/next-load
+	mux.HandleFunc("/api/suggestions/next-load", func(w http.ResponseWriter, r *http.Request) {
+		handlers.NextLoad(db).ServeHTTP(w, r)
+	})
 
-	// ===== Middlewares =====
-	handler := withCORS(mux)
+	// ===== Planner semanal =====
+	// GET /api/plan/weekly
+	// POST /api/plan/weekly/save
+	mux.HandleFunc("/api/plan/weekly", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.PlanWeekly(db).ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/api/plan/weekly/save", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.PlanWeeklySave(db).ServeHTTP(w, r)
+	})
 
-	// ===== Servidor =====
+	// ===== Perfil & Métricas =====
+	// Não achei handlers no grep; exponho 501 para não quebrar o contrato.
+	mux.HandleFunc("/api/me/profile", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not implemented (/api/me/profile)", http.StatusNotImplemented)
+	})
+	mux.HandleFunc("/api/me/metrics", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not implemented (/api/me/metrics)", http.StatusNotImplemented)
+	})
+	mux.HandleFunc("/api/me/summary", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.MeSummaryHandler(db).ServeHTTP(w, r)
+	})
+
+	// ===== Histórico: Sessions & Sets (novos) =====
+	// /api/sessions        GET (list), POST (create)
+	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handlers.SessionsList(w, r)
+		case http.MethodPost:
+			handlers.SessionsCreate(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	// /api/sessions/{id} e subrotas /sets
+	mux.HandleFunc("/api/sessions/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.Contains(path, "/sets") {
+			switch r.Method {
+			case http.MethodGet:
+				handlers.SetsList(w, r)
+			case http.MethodPost:
+				handlers.SetsCreate(w, r)
+			case http.MethodPatch:
+				handlers.SetsPatch(w, r)
+			case http.MethodDelete:
+				handlers.SetsDelete(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			handlers.SessionsGet(w, r)
+		case http.MethodPatch:
+			handlers.SessionsPatch(w, r)
+		case http.MethodDelete:
+			handlers.SessionsDelete(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// ===== Server =====
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      handler,
+		Handler:      withCORS(mux),
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("API Anima ouvindo em http://localhost:%s", port)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
-}
-
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
+	go func() {
+		log.Printf("[anima] escutando em :%s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("erro ListenAndServe: %v", err)
 		}
-		next.ServeHTTP(w, r)
-	})
-}
+	}()
 
-func pingWithTimeout(db *sql.DB, d time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), d)
+	// Graceful shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+	log.Println("[anima] encerrando...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	return db.PingContext(ctx)
-}
-
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("erro no shutdown: %v", err)
 	}
-	return fallback
+	_ = db.Close()
+	log.Println("[anima] bye")
 }

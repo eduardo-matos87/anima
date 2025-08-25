@@ -1,424 +1,523 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: Anima API
-  version: 0.1.0
+  version: "0.1.0"
   description: >
-    API para geração e gestão de treinos com suporte a perfil, métricas e anotações de coach.
+    API do Anima (Go + Postgres) para geração e gestão de treinos com IA,
+    planner semanal e histórico de treinos (sessions/sets).
+
 servers:
   - url: http://localhost:8081
     description: Local
 
-tags:
-  - name: Health
-  - name: Exercises
-  - name: Treinos
-  - name: Profile
-  - name: Metrics
-  - name: Summary
+security:
+  - UserIdHeader: []
 
 paths:
   /health:
     get:
-      tags: [Health]
-      summary: Healthcheck do serviço
+      summary: Verifica saúde do serviço
       responses:
-        '200':
-          description: ok
-          content:
-            text/plain:
-              schema: { type: string, example: ok }
-
-  /api/exercises:
-    get:
-      tags: [Exercises]
-      summary: Lista exercícios base
-      responses:
-        '200':
-          description: Lista de exercícios
+        "200":
+          description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Exercise'
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
 
-  /api/treinos/generate:
-    post:
-      tags: [Treinos]
-      summary: Gera um treino (mock) e, se use_ai=true no perfil, traz coach_notes
-      parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/GenerateReq' }
-      responses:
-        '200':
-          description: Treino gerado (não persistido)
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GenerateResp' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  /api/treinos:
+  /api/exercises:
     get:
-      tags: [Treinos]
-      summary: Lista treinos (paginação e busca)
+      summary: Lista exercícios do catálogo
       parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
         - in: query
           name: page
           schema: { type: integer, minimum: 1, default: 1 }
         - in: query
-          name: limit
+          name: per_page
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
         - in: query
-          name: q
-          schema: { type: string }
-          description: Busca em objetivo/nivel/divisao (unaccent ilike)
-        - in: query
-          name: goal
+          name: search
           schema: { type: string }
         - in: query
-          name: level
+          name: muscle_group
           schema: { type: string }
       responses:
-        '200':
-          description: Lista paginada
+        "200":
+          description: Lista paginada de exercícios
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TreinoListResponse' }
-    post:
-      tags: [Treinos]
-      summary: Salva um treino
+              schema:
+                $ref: "#/components/schemas/PaginatedExercises"
+
+  /api/treinos:
+    get:
+      summary: Lista treinos (paginado)
       parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedTreinos"
+
+  /api/treinos/{id}:
+    get:
+      summary: Obtém treino por ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Treino"
+
+  /api/treinos/generate:
+    post:
+      summary: Gera treino (v1.1) com descanso por exercício e notas de coach
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/TreinoPost' }
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
       responses:
-        '201':
+        "200":
+          description: Gerado (e possivelmente persistido)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateResponse"
+
+  /api/plan/weekly:
+    get:
+      summary: Monta planner semanal (preview, não persiste)
+      parameters:
+        - in: query
+          name: divisao
+          required: true
+          schema: { $ref: "#/components/schemas/DivisaoEnum" }
+        - in: query
+          name: days
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 7 }
+        - in: query
+          name: objetivo
+          schema: { $ref: "#/components/schemas/ObjetivoEnum" }
+        - in: query
+          name: nivel
+          schema: { $ref: "#/components/schemas/NivelEnum" }
+      responses:
+        "200":
+          description: OK (preview)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyPlanPreviewResponse"
+
+  /api/plan/weekly/save:
+    post:
+      summary: Persiste N treinos do planner semanal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeeklyPlanSaveRequest"
+      responses:
+        "201":
+          description: Criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyPlanSaveResponse"
+
+  /api/me/summary:
+    get:
+      summary: Resumo do usuário (idade, IMC, objetivo, recomendações)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSummary"
+
+  /api/sessions:
+    get:
+      summary: Lista sessões de treino do usuário
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedSessions"
+    post:
+      summary: Cria uma nova sessão de treino
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionCreateReq"
+      responses:
+        "201":
           description: Criado
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  id: { type: integer, example: 17 }
-                  treino_id: { type: string, example: "20250822T150405" }
-        '409': { $ref: '#/components/responses/Conflict' }
+                  id: { type: integer, example: 123 }
 
-  /api/treinos/{id}:
+  /api/sessions/{id}:
     get:
-      tags: [Treinos]
-      summary: Obtém um treino por ID
+      summary: Detalha uma sessão de treino
       parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
         - in: path
           name: id
           required: true
-          schema: { type: integer, minimum: 1 }
+          schema: { type: integer }
       responses:
-        '200':
-          description: Treino encontrado
+        "200":
+          description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TreinoItem' }
-        '404': { $ref: '#/components/responses/NotFound' }
+              schema:
+                $ref: "#/components/schemas/Session"
     patch:
-      tags: [Treinos]
-      summary: Atualiza apenas coach_notes de um treino
+      summary: Atualiza campos da sessão (ended_at, duration_sec, notes)
       parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
         - in: path
           name: id
           required: true
-          schema: { type: integer, minimum: 1 }
+          schema: { type: integer }
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                coach_notes:
-                  type: string
-                  nullable: true
-                  description: Pode ser null/"" para limpar
+              $ref: "#/components/schemas/SessionPatchReq"
       responses:
-        '200':
-          description: Notas atualizadas
+        "200":
+          description: Atualizado
+    delete:
+      summary: Remove a sessão (e sets em cascata)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deletado
+
+  /api/sessions/{id}/sets:
+    get:
+      summary: Lista séries (sets) de uma sessão
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WorkoutSet" }
+    post:
+      summary: Cria uma série (set) na sessão
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCreateReq"
+      responses:
+        "201":
+          description: Criado
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  id: { type: integer }
-                  coach_notes: { type: string, nullable: true }
+                  id: { type: integer, example: 456 }
 
-  /api/treinos/by-key/{key}:
-    get:
-      tags: [Treinos]
-      summary: Obtém um treino por treino_key lógico
+  /api/sessions/{id}/sets/{setId}:
+    patch:
+      summary: Atualiza uma série (set) da sessão
       parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
         - in: path
-          name: key
+          name: id
           required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: Treino encontrado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TreinoItem' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/me/profile:
-    get:
-      tags: [Profile]
-      summary: Obtém o perfil do usuário
-      parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
-      responses:
-        '200':
-          description: Perfil (pode estar vazio)
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/UserProfile' }
-    put:
-      tags: [Profile]
-      summary: Atualiza/merge do perfil (upsert)
-      parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
+          schema: { type: integer }
+        - in: path
+          name: setId
+          required: true
+          schema: { type: integer }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UserProfile' }
+            schema:
+              $ref: "#/components/schemas/SetPatchReq"
       responses:
-        '200':
-          description: Perfil atualizado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/UserProfile' }
-
-  /api/me/metrics:
-    get:
-      tags: [Metrics]
-      summary: Lista métricas de usuário (peso histórico)
+        "200":
+          description: Atualizado
+    delete:
+      summary: Remove uma série (set) da sessão
       parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+        - in: path
+          name: setId
+          required: true
+          schema: { type: integer }
       responses:
-        '200':
-          description: Lista de métricas (mais recente primeiro)
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/UserMetric' }
-    post:
-      tags: [Metrics]
-      summary: Registra uma métrica (peso)
-      parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UserMetricPost' }
-      responses:
-        '201':
-          description: Criada
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/UserMetric' }
-
-  /api/me/summary:
-    get:
-      tags: [Summary]
-      summary: Sumário do usuário (IMC, idade, tendência 30d)
-      parameters:
-        - $ref: '#/components/parameters/UserIdHeader'
-      responses:
-        '200':
-          description: Sumário calculado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/MeSummary' }
+        "200":
+          description: Deletado
 
 components:
-  parameters:
+  securitySchemes:
     UserIdHeader:
+      type: apiKey
       in: header
       name: X-User-ID
-      required: false
-      schema: { type: string, example: "demo-user" }
-      description: >
-        Identificação lógica do usuário. Se não enviado, o backend usa um default (ex.: "demo-user").
-
-  responses:
-    BadRequest:
-      description: Requisição inválida
-    NotFound:
-      description: Recurso não encontrado
-    Conflict:
-      description: Conflito de chave única (ex.: treino_id já usado)
 
   schemas:
+    ObjetivoEnum:
+      type: string
+      enum: [hipertrofia, forca, resistencia]
+    NivelEnum:
+      type: string
+      enum: [iniciante, intermediario, avancado]
+    DivisaoEnum:
+      type: string
+      enum: [fullbody, upperlower, ppl, push, pull, legs]
+
     Exercise:
       type: object
       properties:
         id: { type: integer }
-        name: { type: string }
+        nome: { type: string }
         muscle_group: { type: string }
-        equipment:
+        difficulty: { type: string }
+        equipment: { type: string }
+
+    PaginatedExercises:
+      type: object
+      properties:
+        items:
           type: array
-          items: { type: string }
-        difficulty: { type: string, example: "iniciante" }
-        is_bodyweight: { type: boolean }
+          items: { $ref: "#/components/schemas/Exercise" }
+        next: { type: integer, nullable: true }
+        count: { type: integer }
 
-    GenerateReq:
-      type: object
-      required: [objetivo, nivel, divisao]
-      properties:
-        objetivo: { type: string, example: "hipertrofia" }
-        nivel: { type: string, example: "iniciante" }
-        divisao: { type: string, example: "fullbody" }
-        dias: { type: integer, example: 3 }
-
-    GeneratedExercise:
+    TreinoExercicio:
       type: object
       properties:
+        exercicio_id: { type: integer }
         nome: { type: string }
         series: { type: integer }
         repeticoes: { type: string }
         descanso_seg: { type: integer }
 
-    GenerateResp:
-      type: object
-      properties:
-        treino_id: { type: string, example: "20250822T150405" }
-        exercicios:
-          type: array
-          items: { $ref: '#/components/schemas/GeneratedExercise' }
-        coach_notes:
-          type: string
-          nullable: true
-
-    TreinoPost:
-      type: object
-      required: [treino_id, objetivo, nivel, dias, divisao, exercicios]
-      properties:
-        treino_id: { type: string, example: "demo-ia-6" }
-        objetivo: { type: string, example: "hipertrofia" }
-        nivel: { type: string, example: "iniciante" }
-        dias: { type: integer, example: 3 }
-        divisao: { type: string, example: "fullbody" }
-        coach_notes:
-          type: string
-          nullable: true
-        exercicios:
-          type: array
-          items:
-            type: object
-            required: [exercicio_id, series, repeticoes]
-            properties:
-              exercicio_id: { type: integer, example: 1 }
-              series: { type: integer, example: 3 }
-              repeticoes: { type: string, example: "8-12" }
-
-    TreinoItem:
+    Treino:
       type: object
       properties:
         id: { type: integer }
-        objetivo: { type: string }
-        nivel: { type: string }
+        treino_id: { type: string }
+        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
+        nivel: { $ref: "#/components/schemas/NivelEnum" }
         dias: { type: integer }
-        divisao: { type: string }
-        coach_notes:
-          type: string
-          nullable: true
+        divisao: { $ref: "#/components/schemas/DivisaoEnum" }
+        coach_notes: { type: string }
         exercicios:
           type: array
-          items:
-            type: object
-            properties:
-              exercicio_id: { type: integer }
-              nome: { type: string }
-              grupo: { type: string }
-              series: { type: integer }
-              repeticoes: { type: string }
+          items: { $ref: "#/components/schemas/TreinoExercicio" }
 
-    TreinoListResponse:
+    PaginatedTreinos:
       type: object
       properties:
-        page: { type: integer }
-        limit: { type: integer }
-        total: { type: integer }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Treino" }
+        next: { type: integer, nullable: true }
+        count: { type: integer }
+
+    GenerateRequest:
+      type: object
+      required: [objetivo, nivel, divisao]
+      properties:
+        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
+        nivel: { $ref: "#/components/schemas/NivelEnum" }
+        divisao: { $ref: "#/components/schemas/DivisaoEnum" }
+        dias: { type: integer, minimum: 1 }
+        persist: { type: boolean, default: true }
+        treino_id: { type: string }
+
+    GenerateResponse:
+      type: object
+      properties:
+        id: { type: integer, nullable: true }
+        treino_id: { type: string }
+        exercicios:
+          type: array
+          items: { $ref: "#/components/schemas/TreinoExercicio" }
+        coach_notes: { type: string }
+
+    WeeklyPlanPreviewItem:
+      type: object
+      properties:
+        day_index: { type: integer }
+        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
+        nivel: { $ref: "#/components/schemas/NivelEnum" }
+        divisao_base: { $ref: "#/components/schemas/DivisaoEnum" }
+        exercicios:
+          type: array
+          items: { $ref: "#/components/schemas/TreinoExercicio" }
+        coach_notes: { type: string }
+
+    WeeklyPlanPreviewResponse:
+      type: object
+      properties:
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/WeeklyPlanPreviewItem" }
+
+    WeeklyPlanSaveRequest:
+      type: object
+      required: [objetivo, nivel, divisao, dias]
+      properties:
+        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
+        nivel: { $ref: "#/components/schemas/NivelEnum" }
+        divisao: { $ref: "#/components/schemas/DivisaoEnum" }
+        dias: { type: integer, minimum: 1, maximum: 7 }
+        treino_id_prefix: { type: string }
+
+    WeeklyPlanSaveResponse:
+      type: object
+      properties:
+        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
+        nivel: { $ref: "#/components/schemas/NivelEnum" }
+        dias: { type: integer }
+        divisao_base: { $ref: "#/components/schemas/DivisaoEnum" }
         items:
           type: array
           items:
             type: object
             properties:
+              day_index: { type: integer }
               id: { type: integer }
-              treino_key:
-                type: string
-                nullable: true
-              objetivo: { type: string }
-              nivel: { type: string }
-              dias: { type: integer }
-              divisao: { type: string }
-              coach_notes:
-                type: string
-                nullable: true
-        query: { type: string, nullable: true }
-        goal: { type: string, nullable: true }
-        level: { type: string, nullable: true }
+              treino_id: { type: string }
 
-    UserProfile:
-      type: object
-      description: Todos os campos são opcionais; PUT faz merge/upsert.
-      properties:
-        height_cm: { type: integer, minimum: 0, example: 178 }
-        weight_kg: { type: number, format: float, minimum: 0, example: 82.5 }
-        birth_date: { type: string, format: date, example: "1992-05-01" }
-        training_goal: { type: string, example: "hipertrofia" }
-        experience_level: { type: string, example: "iniciante" }
-        activity_level: { type: string, example: "moderate" }
-        use_ai: { type: boolean, example: true }
-        notes: { type: string }
-        updated_at: { type: string, format: date-time, readOnly: true }
-
-    UserMetric:
+    UserSummary:
       type: object
       properties:
-        weight_kg: { type: number, format: float, example: 82.3 }
-        measured_at:
-          type: string
-          format: date-time
-          example: "2025-08-22T12:00:00Z"
+        idade: { type: integer }
+        imc: { type: number }
+        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
+        recomendacoes: { type: string }
 
-    UserMetricPost:
-      type: object
-      required: [weight_kg]
-      properties:
-        weight_kg: { type: number, format: float, example: 82.3 }
-        measured_at:
-          type: string
-          format: date-time
-          nullable: true
-          description: Se omitido, o backend usa now()
-
-    MeSummary:
+    # Sessions / Sets
+    Session:
       type: object
       properties:
-        height_cm: { type: integer, nullable: true }
+        id: { type: integer }
+        user_id: { type: string }
+        treino_id: { type: integer, nullable: true }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time, nullable: true }
+        duration_sec: { type: integer, nullable: true }
+        notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    PaginatedSessions:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Session" }
+        next: { type: integer, nullable: true }
+        count: { type: integer }
+
+    SessionCreateReq:
+      type: object
+      properties:
+        treino_id: { type: integer, nullable: true }
+        started_at: { type: string, format: date-time, nullable: true }
+        notes: { type: string, nullable: true }
+
+    SessionPatchReq:
+      type: object
+      properties:
+        ended_at: { type: string, format: date-time, nullable: true }
+        duration_sec: { type: integer, nullable: true }
+        notes: { type: string, nullable: true }
+
+    WorkoutSet:
+      type: object
+      properties:
+        id: { type: integer }
+        session_id: { type: integer }
+        exercicio_id: { type: integer }
+        set_index: { type: integer }
         weight_kg: { type: number, format: float, nullable: true }
-        age_years: { type: integer, nullable: true }
-        bmi: { type: number, format: float, nullable: true }
-        weight_change_30d: { type: number, format: float, nullable: true }
-        last_measurement_at: { type: string, format: date, nullable: true }
+        reps: { type: integer, nullable: true }
+        rir: { type: integer, nullable: true }
+        completed: { type: boolean }
+        rest_sec: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    SetCreateReq:
+      type: object
+      required: [exercicio_id, set_index]
+      properties:
+        exercicio_id: { type: integer }
+        set_index: { type: integer, minimum: 1 }
+        weight_kg: { type: number, format: float, nullable: true }
+        reps: { type: integer, nullable: true }
+        rir: { type: integer, nullable: true }
+        completed: { type: boolean, nullable: true }
+        rest_sec: { type: integer, nullable: true }
+
+    SetPatchReq:
+      type: object
+      properties:
+        weight_kg: { type: number, format: float, nullable: true }
+        reps: { type: integer, nullable: true }
+        rir: { type: integer, nullable: true }
+        completed: { type: boolean, nullable: true }
+        rest_sec: { type: integer, nullable: true }
+        set_index: { type: integer, nullable: true }
