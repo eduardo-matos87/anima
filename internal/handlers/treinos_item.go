@@ -53,7 +53,6 @@ func TreinosItem(db *sql.DB) http.Handler {
 		obj := map[string]any{}
 		for i, c := range cols {
 			v := raw[i]
-			// converte []byte -> string quando for texto
 			if b, ok := v.([]byte); ok {
 				obj[c] = string(b)
 			} else {

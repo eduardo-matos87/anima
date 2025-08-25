@@ -117,21 +117,18 @@ func main() {
 
 	// ===== Treinos (item) =====
 	// GET /api/treinos/{id}
-	// PATCH /api/treinos/{id} (coach_notes ainda não implementado -> 501)
-	// /api/treinos/by-key/{key} não encontrado no repo -> 501
+	// PATCH /api/treinos/{id}
 	mux.HandleFunc("/api/treinos/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-
 		if strings.HasPrefix(path, "/api/treinos/by-key/") {
 			http.Error(w, "not implemented (/api/treinos/by-key)", http.StatusNotImplemented)
 			return
 		}
-
 		switch r.Method {
 		case http.MethodGet:
 			handlers.TreinosItem(db).ServeHTTP(w, r)
 		case http.MethodPatch:
-			http.Error(w, "not implemented (PATCH /api/treinos/{id})", http.StatusNotImplemented)
+			handlers.TreinosUpdate(db).ServeHTTP(w, r)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -152,6 +149,9 @@ func main() {
 		// usamos o wrapper (w,r)
 		handlers.NextLoad(w, r)
 	})
+
+	// Admin: refresh MV de overload
+	mux.Handle("/api/admin/overload/refresh", handlers.AdminOverloadRefresh(db))
 
 	// === Overload (POST) ===
 	// === Overload ===
@@ -208,9 +208,6 @@ func main() {
 		}
 	})
 
-	// Admin: refresh MV de overload
-	mux.Handle("/api/admin/overload/refresh", handlers.AdminOverloadRefresh(db))
-
 	// /api/sessions/{id} e subrotas /sets e /update
 	mux.HandleFunc("/api/sessions/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -253,7 +250,7 @@ func main() {
 	// ===== Server =====
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      withCORS(mux),
+		Handler:      withCORS(handlers.WrapLogging(mux)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

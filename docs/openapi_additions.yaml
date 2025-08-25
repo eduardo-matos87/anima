@@ -1,49 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Anima API (additions)
+  version: "1.0"
 paths:
-  /api/sessions:
-    post:
-      summary: Create a workout session (optionally with sets)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                treino_id: { type: integer }
-                session_at: { type: string, format: date-time }
-                notes: { type: string }
-                sets:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/SessionSet'
-      responses:
-        "201": { description: Created }
-
-  /api/sessions/list:
+  /api/treinos:
     get:
-      summary: List workout sessions
+      summary: Listar treinos
       parameters:
         - in: query
-          name: treino_id
-          schema: { type: integer }
-        - in: query
-          name: from
-          schema: { type: string, format: date-time }
-        - in: query
-          name: to
-          schema: { type: string, format: date-time }
-        - in: query
           name: page
-          schema: { type: integer, default: 1 }
+          schema: { type: integer, minimum: 1, default: 1 }
         - in: query
           name: page_size
-          schema: { type: integer, default: 20 }
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: nivel
+          schema: { type: string }
+        - in: query
+          name: objetivo
+          schema: { type: string }
+        - in: query
+          name: divisao
+          schema: { type: string }
       responses:
         "200": { description: OK }
-
-  /api/sessions/{id}:
+  /api/treinos/{id}:
     get:
-      summary: Get a workout session
+      summary: Obter treino por ID
       parameters:
         - in: path
           name: id
@@ -52,10 +35,8 @@ paths:
       responses:
         "200": { description: OK }
         "404": { description: Not found }
-
-  /api/sessions/update/{id}:
     patch:
-      summary: Update a workout session
+      summary: Atualizar treino (parcial)
       parameters:
         - in: path
           name: id
@@ -68,69 +49,106 @@ paths:
             schema:
               type: object
               properties:
-                session_at: { type: string, format: date-time }
-                notes: { type: string }
+                coach_notes: { type: string }
+                nivel: { type: string }
+                objetivo: { type: string }
+                divisao: { type: string }
+                dias: { type: integer, minimum: 1, maximum: 7 }
+                treino_key: { type: string }
       responses:
-        "204": { description: No content }
-    delete:
-      summary: Delete a workout session
+        "204": { description: Updated }
+  /api/sessions:
+    get:
+      summary: Listar sessões
+      responses:
+        "200": { description: OK }
+    post:
+      summary: Criar sessão
+      responses:
+        "201": { description: Created }
+  /api/sessions/{id}:
+    get:
+      summary: Obter sessão
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: integer }
       responses:
-        "204": { description: No content }
-
-  /api/sessions/sets/{session_id}:
-    get:
-      summary: List sets in a session
+        "200": { description: OK }
+        "404": { description: Not found }
+  /api/sessions/update/{id}:
+    patch:
+      summary: Atualizar sessão (parcial)
       parameters:
         - in: path
-          name: session_id
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Updated }
+    delete:
+      summary: Excluir sessão
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted }
+  /api/sessions/{id}/sets:
+    get:
+      summary: Listar sets da sessão
+      parameters:
+        - in: path
+          name: id
           required: true
           schema: { type: integer }
       responses:
         "200": { description: OK }
     post:
-      summary: Add a set into a session
+      summary: Criar set na sessão
       parameters:
         - in: path
-          name: session_id
+          name: id
           required: true
           schema: { type: integer }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SessionSet'
       responses:
         "201": { description: Created }
-
   /api/sets/{id}:
     patch:
-      summary: Update a set
+      summary: Atualizar set (parcial)
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: integer }
       responses:
-        "204": { description: No content }
+        "204": { description: Updated }
     delete:
-      summary: Delete a set
+      summary: Excluir set
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: integer }
       responses:
-        "204": { description: No content }
-
+        "204": { description: Deleted }
   /api/overload/suggest:
+    get:
+      summary: Sugestão de carga/reps (progressive overload)
+      parameters:
+        - in: query
+          name: exercicio_id
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: window
+          schema: { type: integer, minimum: 3, maximum: 12, default: 5 }
+      responses:
+        "200": { description: OK }
     post:
-      summary: Suggest next load/reps (progressive overload)
+      summary: Sugestão de carga/reps (progressive overload)
       requestBody:
         required: true
         content:
@@ -139,21 +157,11 @@ paths:
               type: object
               properties:
                 exercicio_id: { type: integer }
-                window: { type: integer, default: 5 }
+                window: { type: integer, minimum: 3, maximum: 12, default: 5 }
       responses:
         "200": { description: OK }
-
-components:
-  schemas:
-    SessionSet:
-      type: object
-      properties:
-        id: { type: integer }
-        session_id: { type: integer }
-        exercicio_id: { type: integer }
-        series: { type: integer }
-        repeticoes: { type: integer }
-        carga_kg: { type: number, format: float }
-        rir: { type: integer }
-        completed: { type: boolean }
-        notes: { type: string }
+  /api/admin/overload/refresh:
+    post:
+      summary: Atualiza MV de overload
+      responses:
+        "200": { description: OK }
