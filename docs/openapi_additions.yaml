@@ -1,0 +1,159 @@
+paths:
+  /api/sessions:
+    post:
+      summary: Create a workout session (optionally with sets)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                treino_id: { type: integer }
+                session_at: { type: string, format: date-time }
+                notes: { type: string }
+                sets:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SessionSet'
+      responses:
+        "201": { description: Created }
+
+  /api/sessions/list:
+    get:
+      summary: List workout sessions
+      parameters:
+        - in: query
+          name: treino_id
+          schema: { type: integer }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20 }
+      responses:
+        "200": { description: OK }
+
+  /api/sessions/{id}:
+    get:
+      summary: Get a workout session
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: OK }
+        "404": { description: Not found }
+
+  /api/sessions/update/{id}:
+    patch:
+      summary: Update a workout session
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_at: { type: string, format: date-time }
+                notes: { type: string }
+      responses:
+        "204": { description: No content }
+    delete:
+      summary: Delete a workout session
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: No content }
+
+  /api/sessions/sets/{session_id}:
+    get:
+      summary: List sets in a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: OK }
+    post:
+      summary: Add a set into a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionSet'
+      responses:
+        "201": { description: Created }
+
+  /api/sets/{id}:
+    patch:
+      summary: Update a set
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: No content }
+    delete:
+      summary: Delete a set
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: No content }
+
+  /api/overload/suggest:
+    post:
+      summary: Suggest next load/reps (progressive overload)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exercicio_id: { type: integer }
+                window: { type: integer, default: 5 }
+      responses:
+        "200": { description: OK }
+
+components:
+  schemas:
+    SessionSet:
+      type: object
+      properties:
+        id: { type: integer }
+        session_id: { type: integer }
+        exercicio_id: { type: integer }
+        series: { type: integer }
+        repeticoes: { type: integer }
+        carga_kg: { type: number, format: float }
+        rir: { type: integer }
+        completed: { type: boolean }
+        notes: { type: string }
