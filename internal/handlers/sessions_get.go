@@ -1,38 +1,34 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
-func SessionsGet(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		badRequest(w, "use GET")
-		return
-	}
-	uid := getUserID(r)
-
-	// path: /api/sessions/{id}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/")
-	if len(parts) < 1 || parts[0] == "" {
-		badRequest(w, "missing id")
-		return
-	}
-	id, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		badRequest(w, "invalid id")
-		return
-	}
-
-	s, err := queryOneSession(id, uid)
-	if err != nil {
-		if errIsNotFound(err) {
+// GET /api/sessions/{id}
+func GetWorkoutSession(db *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		if len(parts) < 3 {
+			badRequest(w, "missing id")
+			return
+		}
+		id, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil || id <= 0 {
+			badRequest(w, "invalid id")
+			return
+		}
+		s, err := fetchSession(r.Context(), db, id)
+		if err != nil {
+			internalErr(w, err)
+			return
+		}
+		if s == nil {
 			notFound(w)
 			return
 		}
-		badRequest(w, "db error")
-		return
-	}
-	writeJSON(w, http.StatusOK, s)
+		jsonWrite(w, http.StatusOK, s)
+	})
 }

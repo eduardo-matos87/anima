@@ -70,7 +70,7 @@ func main() {
 	}
 	log.Println("[anima] conectado ao Postgres")
 
-	// Injeta DB nos novos handlers de histórico
+	// Injeta DB nos wrappers compat (sessions/sets/overload)
 	handlers.SetSessionsDB(db)
 
 	// ===== Mux =====
@@ -103,7 +103,7 @@ func main() {
 
 	// ===== Treinos (coleção) =====
 	// GET /api/treinos (listagem)
-	// POST /api/treinos (ainda não implementado no repo atual -> 501)
+	// POST /api/treinos (não implementado ainda -> 501)
 	mux.HandleFunc("/api/treinos", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -147,9 +147,21 @@ func main() {
 		handlers.GenerateTreino(db).ServeHTTP(w, r)
 	})
 
-	// Progressive Overload — GET /api/suggestions/next-load
+	// Progressive Overload (GET) — rota legacy compat
 	mux.HandleFunc("/api/suggestions/next-load", func(w http.ResponseWriter, r *http.Request) {
-		handlers.NextLoad(db).ServeHTTP(w, r)
+		// usamos o wrapper (w,r)
+		handlers.NextLoad(w, r)
+	})
+
+	// === Overload (POST) ===
+	// === Overload ===
+	mux.HandleFunc("/api/overload/suggest", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodPost:
+			handlers.OverloadSuggest(db).ServeHTTP(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	// ===== Planner semanal =====
@@ -162,6 +174,7 @@ func main() {
 		}
 		handlers.PlanWeekly(db).ServeHTTP(w, r)
 	})
+
 	mux.HandleFunc("/api/plan/weekly/save", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -170,23 +183,19 @@ func main() {
 		handlers.PlanWeeklySave(db).ServeHTTP(w, r)
 	})
 
-	// ===== Perfil & Métricas =====
-	// Não achei handlers no grep; exponho 501 para não quebrar o contrato.
-	mux.HandleFunc("/api/me/profile", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "not implemented (/api/me/profile)", http.StatusNotImplemented)
-	})
-	mux.HandleFunc("/api/me/metrics", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "not implemented (/api/me/metrics)", http.StatusNotImplemented)
-	})
-	mux.HandleFunc("/api/me/summary", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+	// /api/sets/{id}  (PATCH/DELETE)
+	mux.HandleFunc("/api/sets/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPatch:
+			handlers.SetsPatch(w, r)
+		case http.MethodDelete:
+			handlers.SetsDelete(w, r)
+		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
 		}
-		handlers.MeSummaryHandler(db).ServeHTTP(w, r)
 	})
 
-	// ===== Histórico: Sessions & Sets (novos) =====
+	// ===== Histórico: Sessions & Sets (usando wrappers (w,r)) =====
 	// /api/sessions        GET (list), POST (create)
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -198,31 +207,41 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	// /api/sessions/{id} e subrotas /sets
+
+	// /api/sessions/{id} e subrotas /sets e /update
 	mux.HandleFunc("/api/sessions/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+
+		// /api/sessions/{id}/sets  (GET/POST)
 		if strings.Contains(path, "/sets") {
 			switch r.Method {
 			case http.MethodGet:
 				handlers.SetsList(w, r)
 			case http.MethodPost:
 				handlers.SetsCreate(w, r)
-			case http.MethodPatch:
-				handlers.SetsPatch(w, r)
-			case http.MethodDelete:
-				handlers.SetsDelete(w, r)
 			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 			return
 		}
+
+		// /api/sessions/update/{id} (PATCH/DELETE)
+		if strings.Contains(path, "/update/") {
+			switch r.Method {
+			case http.MethodPatch:
+				handlers.SessionsPatch(w, r)
+			case http.MethodDelete:
+				handlers.SessionsDelete(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// /api/sessions/{id} (GET)
 		switch r.Method {
 		case http.MethodGet:
 			handlers.SessionsGet(w, r)
-		case http.MethodPatch:
-			handlers.SessionsPatch(w, r)
-		case http.MethodDelete:
-			handlers.SessionsDelete(w, r)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
