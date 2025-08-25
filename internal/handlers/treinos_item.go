@@ -1,6 +1,3 @@
-//go:build ignore
-// +build ignore
-
 package handlers
 
 import (
@@ -11,50 +8,65 @@ import (
 	"strings"
 )
 
+// TreinosItem: GET /api/treinos/{id}
 func TreinosItem(db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// path: /api/treinos/{id}
-		idStr := strings.TrimPrefix(r.URL.Path, "/api/treinos/")
-		id, err := strconv.Atoi(idStr)
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		// /api /treinos /{id}
+		if len(parts) < 3 {
+			badRequest(w, "missing id")
+			return
+		}
+		id, err := strconv.ParseInt(parts[2], 10, 64)
 		if err != nil || id <= 0 {
-			http.NotFound(w, r)
+			badRequest(w, "invalid id")
 			return
 		}
 
-		switch r.Method {
-		case http.MethodGet:
-			// Reusa o handler existente de GET by ID
-			GetTreinoByID(db).ServeHTTP(w, r)
-		case http.MethodPatch:
-			patchTreinoNotes(db, w, r, id)
-		default:
-			w.WriteHeader(http.StatusMethodNotAllowed)
+		rows, err := db.Query(`SELECT * FROM treinos WHERE id = $1`, id)
+		if err != nil {
+			internalErr(w, err)
+			return
+		}
+		defer rows.Close()
+
+		if !rows.Next() {
+			notFound(w)
+			return
+		}
+
+		cols, err := rows.Columns()
+		if err != nil {
+			internalErr(w, err)
+			return
+		}
+		raw := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range raw {
+			ptrs[i] = &raw[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			internalErr(w, err)
+			return
+		}
+
+		obj := map[string]any{}
+		for i, c := range cols {
+			v := raw[i]
+			// converte []byte -> string quando for texto
+			if b, ok := v.([]byte); ok {
+				obj[c] = string(b)
+			} else {
+				obj[c] = v
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(obj); err != nil {
+			internalErr(w, err)
+			return
 		}
 	})
-}
-
-type patchNotesIn struct {
-	CoachNotes *string `json:"coach_notes"`
-}
-
-type patchNotesOut struct {
-	ID         int     `json:"id"`
-	CoachNotes *string `json:"coach_notes,omitempty"`
-}
-
-func patchTreinoNotes(db *sql.DB, w http.ResponseWriter, r *http.Request, id int) {
-	var in patchNotesIn
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		http.Error(w, "json inválido", http.StatusBadRequest)
-		return
-	}
-	// pode aceitar null/"" para limpar
-	_, err := db.Exec(`UPDATE treinos SET coach_notes = $1 WHERE id = $2`, in.CoachNotes, id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	out := patchNotesOut{ID: id, CoachNotes: in.CoachNotes}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
 }

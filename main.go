@@ -208,6 +208,9 @@ func main() {
 		}
 	})
 
+	// Admin: refresh MV de overload
+	mux.Handle("/api/admin/overload/refresh", handlers.AdminOverloadRefresh(db))
+
 	// /api/sessions/{id} e subrotas /sets e /update
 	mux.HandleFunc("/api/sessions/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path

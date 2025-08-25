@@ -10,16 +10,6 @@ import (
 
 var sessionsDB *sql.DB
 
-// TreinosItem ainda não implementado de verdade — stub 501 para compatibilidade
-func TreinosItem(db *sql.DB) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		jsonWrite(w, http.StatusNotImplemented, map[string]any{
-			"error":   "not_implemented",
-			"message": "TreinosItem será implementado após consolidar os handlers de treinos.",
-		})
-	})
-}
-
 // ====== injeção de DB usada pelo main.go ======
 func SetSessionsDB(db *sql.DB) { sessionsDB = db }
 
@@ -27,7 +17,7 @@ func SetSessionsDB(db *sql.DB) { sessionsDB = db }
 // Wrappers no estilo (w,r)
 // =======================
 
-// /api/sessions/list
+// /api/sessions (GET list)
 func SessionsList(w http.ResponseWriter, r *http.Request) {
 	if sessionsDB == nil {
 		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
@@ -54,7 +44,7 @@ func SessionsGet(w http.ResponseWriter, r *http.Request) {
 	GetWorkoutSession(sessionsDB).ServeHTTP(w, r)
 }
 
-// PATCH /api/sessions/update/{id}
+// PATCH/DELETE /api/sessions/update/{id}
 func SessionsPatch(w http.ResponseWriter, r *http.Request) {
 	if sessionsDB == nil {
 		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
@@ -62,8 +52,6 @@ func SessionsPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	UpdateDeleteSession(sessionsDB).ServeHTTP(w, r)
 }
-
-// DELETE /api/sessions/update/{id}
 func SessionsDelete(w http.ResponseWriter, r *http.Request) {
 	if sessionsDB == nil {
 		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
@@ -72,7 +60,7 @@ func SessionsDelete(w http.ResponseWriter, r *http.Request) {
 	UpdateDeleteSession(sessionsDB).ServeHTTP(w, r)
 }
 
-// POST /api/overload/suggest (wrapper legacy GET também aponta aqui no main)
+// Overload (compat GET legacy e POST)
 func NextLoad(w http.ResponseWriter, r *http.Request) {
 	if sessionsDB == nil {
 		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
@@ -94,7 +82,6 @@ func SetsList(w http.ResponseWriter, r *http.Request) {
 	}
 	setsCollectionCompat(sessionsDB).ServeHTTP(w, r)
 }
-
 func SetsCreate(w http.ResponseWriter, r *http.Request) {
 	if sessionsDB == nil {
 		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
@@ -102,7 +89,6 @@ func SetsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	setsCollectionCompat(sessionsDB).ServeHTTP(w, r)
 }
-
 func SetsPatch(w http.ResponseWriter, r *http.Request) {
 	if sessionsDB == nil {
 		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
@@ -110,7 +96,6 @@ func SetsPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	setItemCompat(sessionsDB).ServeHTTP(w, r)
 }
-
 func SetsDelete(w http.ResponseWriter, r *http.Request) {
 	if sessionsDB == nil {
 		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
@@ -124,7 +109,7 @@ func SetsDelete(w http.ResponseWriter, r *http.Request) {
 // ===========================
 
 // coleção: GET lista de sets por sessão / POST cria set em sessão
-// Esperado pelo main: /api/sessions/{id}/sets
+// Esperado: /api/sessions/{id}/sets
 func setsCollectionCompat(db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// parts: ["api","sessions","{id}","sets"]
