@@ -1,102 +1,133 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 )
 
-var sessionsDB *sql.DB
-
-func SetSessionsDB(db *sql.DB) { sessionsDB = db }
-
-// (REMOVIDO) getUserID — usar a versão já existente em userctx.go
-
-func parseID(s string) (int64, error) {
-	return strconv.ParseInt(s, 10, 64)
+type Session struct {
+	ID        int64     `json:"id"`
+	TreinoID  int64     `json:"treino_id"`
+	SessionAt time.Time `json:"session_at"`
+	Notes     string    `json:"notes,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
+type SessionSet struct {
+	ID          int64   `json:"id"`
+	SessionID   int64   `json:"session_id"`
+	ExercicioID int64   `json:"exercicio_id"`
+	Series      int     `json:"series"`
+	Repeticoes  int     `json:"repeticoes"`
+	CargaKg     float64 `json:"carga_kg,omitempty"`
+	RIR         int     `json:"rir,omitempty"`
+	Completed   bool    `json:"completed"`
+	Notes       string  `json:"notes,omitempty"`
+}
+
+func parseIntQuery(r *http.Request, key string, def int) int {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return def
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return i
+}
+
+func parseInt64Query(r *http.Request, key string, def int64) int64 {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return def
+	}
+	i, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return def
+	}
+	return i
+}
+
+func parseTimeQuery(r *http.Request, key string) (time.Time, bool) {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return time.Time{}, false
+	}
+	// aceita RFC3339 ou yyyy-mm-dd
+	t, err := time.Parse(time.RFC3339, v)
+	if err == nil {
+		return t, true
+	}
+	t, err = time.Parse("2006-01-02", v)
+	return t, err == nil
+}
+
+func jsonWrite(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
 func badRequest(w http.ResponseWriter, msg string) {
-	writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+	jsonWrite(w, http.StatusBadRequest, map[string]string{"error": msg})
 }
 
 func notFound(w http.ResponseWriter) {
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	jsonWrite(w, http.StatusNotFound, map[string]string{"error": "not found"})
 }
 
-type Session struct {
-	ID          int64      `json:"id"`
-	UserID      string     `json:"user_id"`
-	TreinoID    *int64     `json:"treino_id,omitempty"`
-	StartedAt   time.Time  `json:"started_at"`
-	EndedAt     *time.Time `json:"ended_at,omitempty"`
-	DurationSec *int64     `json:"duration_sec,omitempty"`
-	Notes       *string    `json:"notes,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+func internalErr(w http.ResponseWriter, err error) {
+	jsonWrite(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 }
 
-type WorkoutSet struct {
-	ID          int64     `json:"id"`
-	SessionID   int64     `json:"session_id"`
-	ExercicioID int64     `json:"exercicio_id"`
-	SetIndex    int       `json:"set_index"`
-	WeightKG    *float64  `json:"weight_kg,omitempty"`
-	Reps        *int      `json:"reps,omitempty"`
-	RIR         *int      `json:"rir,omitempty"`
-	Completed   bool      `json:"completed"`
-	RestSec     *int      `json:"rest_sec,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-type Page[T any] struct {
-	Items []T   `json:"items"`
-	Next  *int  `json:"next,omitempty"`
-	Count int64 `json:"count"`
-}
-
-func queryOneSession(id int64, userID string) (*Session, error) {
+// Helpers de DB
+func fetchSession(ctx context.Context, db *sql.DB, id int64) (*Session, error) {
 	const q = `
-SELECT id, user_id, treino_id, started_at, ended_at, duration_sec, notes, created_at
-FROM workout_sessions
-WHERE id = $1 AND user_id = $2`
-	row := sessionsDB.QueryRow(q, id, userID)
+	  SELECT id, treino_id, session_at, COALESCE(notes,''), created_at, updated_at
+	  FROM workout_sessions WHERE id = $1`
 	var s Session
-	var treinoID sql.NullInt64
-	var endedAt sql.NullTime
-	var duration sql.NullInt64
-	var notes sql.NullString
-	err := row.Scan(&s.ID, &s.UserID, &treinoID, &s.StartedAt, &endedAt, &duration, &notes, &s.CreatedAt)
+	err := db.QueryRowContext(ctx, q, id).Scan(&s.ID, &s.TreinoID, &s.SessionAt, &s.Notes, &s.CreatedAt, &s.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
-	}
-	if treinoID.Valid {
-		val := treinoID.Int64
-		s.TreinoID = &val
-	}
-	if endedAt.Valid {
-		val := endedAt.Time
-		s.EndedAt = &val
-	}
-	if duration.Valid {
-		val := duration.Int64
-		s.DurationSec = &val
-	}
-	if notes.Valid {
-		val := notes.String
-		s.Notes = &val
 	}
 	return &s, nil
 }
 
-func errIsNotFound(err error) bool {
-	return errors.Is(err, sql.ErrNoRows)
+func fetchSet(ctx context.Context, db *sql.DB, id int64) (*SessionSet, error) {
+	const q = `
+	  SELECT id, session_id, exercicio_id, series, repeticoes, COALESCE(carga_kg,0), COALESCE(rir,0), completed, COALESCE(notes,'')
+	  FROM workout_sets WHERE id = $1`
+	var s SessionSet
+	err := db.QueryRowContext(ctx, q, id).Scan(
+		&s.ID, &s.SessionID, &s.ExercicioID, &s.Series, &s.Repeticoes, &s.CargaKg, &s.RIR, &s.Completed, &s.Notes,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// Validação simples
+func validateSessionPayload(treinoID int64, at time.Time) error {
+	if treinoID <= 0 {
+		return fmt.Errorf("treino_id inválido")
+	}
+	if at.IsZero() {
+		return fmt.Errorf("session_at inválido")
+	}
+	return nil
 }

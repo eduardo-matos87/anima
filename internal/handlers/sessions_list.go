@@ -3,84 +3,69 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
-	"strconv"
 )
 
-func SessionsList(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		badRequest(w, "use GET")
-		return
-	}
-	uid := getUserID(r)
-	q := r.URL.Query()
-
-	limit := 20
-	offset := 0
-	if v := q.Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
-			limit = n
+// GET /api/sessions/list?treino_id=&from=&to=&page=&page_size=
+func ListSessions(db *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := parseIntQuery(r, "page", 1)
+		ps := parseIntQuery(r, "page_size", 20)
+		if ps > 100 {
+			ps = 100
 		}
-	}
-	if v := q.Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = n
+		offset := (page - 1) * ps
+
+		treinoID := parseInt64Query(r, "treino_id", 0)
+		from, hasFrom := parseTimeQuery(r, "from")
+		to, hasTo := parseTimeQuery(r, "to")
+
+		q := `
+		  SELECT id, treino_id, session_at, COALESCE(notes,''), created_at, updated_at
+		  FROM workout_sessions
+		  WHERE 1=1`
+		args := []any{}
+		i := 1
+		if treinoID > 0 {
+			q += ` AND treino_id = $` + itoa(i)
+			args = append(args, treinoID)
+			i++
 		}
-	}
+		if hasFrom {
+			q += ` AND session_at >= $` + itoa(i)
+			args = append(args, from)
+			i++
+		}
+		if hasTo {
+			q += ` AND session_at <= $` + itoa(i)
+			args = append(args, to)
+			i++
+		}
+		q += ` ORDER BY session_at DESC LIMIT $` + itoa(i) + ` OFFSET $` + itoa(i+1)
+		args = append(args, ps, offset)
 
-	const qCount = `SELECT COUNT(*) FROM workout_sessions WHERE user_id = $1`
-	var count int64
-	if err := sessionsDB.QueryRow(qCount, uid).Scan(&count); err != nil {
-		badRequest(w, "db error")
-		return
-	}
-
-	const qList = `
-SELECT id, user_id, treino_id, started_at, ended_at, duration_sec, notes, created_at
-FROM workout_sessions
-WHERE user_id = $1
-ORDER BY started_at DESC
-LIMIT $2 OFFSET $3`
-	rows, err := sessionsDB.Query(qList, uid, limit, offset)
-	if err != nil {
-		badRequest(w, "db error")
-		return
-	}
-	defer rows.Close()
-
-	items := make([]Session, 0, limit)
-	for rows.Next() {
-		var s Session
-		var treinoID sql.NullInt64
-		var ended sql.NullTime
-		var dur sql.NullInt64
-		var notes sql.NullString
-		if err := rows.Scan(&s.ID, &s.UserID, &treinoID, &s.StartedAt, &ended, &dur, &notes, &s.CreatedAt); err != nil {
-			badRequest(w, "scan error")
+		rows, err := db.Query(q, args...)
+		if err != nil {
+			internalErr(w, err)
 			return
 		}
-		if treinoID.Valid {
-			v := treinoID.Int64
-			s.TreinoID = &v
-		}
-		if ended.Valid {
-			v := ended.Time
-			s.EndedAt = &v
-		}
-		if dur.Valid {
-			v := dur.Int64
-			s.DurationSec = &v
-		}
-		if notes.Valid {
-			v := notes.String
-			s.Notes = &v
-		}
-		items = append(items, s)
-	}
+		defer rows.Close()
 
-	var next *int
-	if int64(offset+limit) < count {
-		n := offset + limit
-		next = &n
-	}
-	writeJSON(w, http.StatusOK, Page[Session]{Items: items, Next: next, Count: count})
+		out := []Session{}
+		for rows.Next() {
+			var s Session
+			if err := rows.Scan(&s.ID, &s.TreinoID, &s.SessionAt, &s.Notes, &s.CreatedAt, &s.UpdatedAt); err != nil {
+				internalErr(w, err)
+				return
+			}
+			out = append(out, s)
+		}
+		jsonWrite(w, http.StatusOK, map[string]any{
+			"page":       page,
+			"page_size":  ps,
+			"items":      out,
+			"total_hint": len(out),
+		})
+	})
 }
+
+func itoa(i int) string { return fmtInt(i) }
