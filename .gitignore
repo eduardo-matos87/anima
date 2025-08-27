@@ -13,3 +13,4 @@ anima.db
 
 # locais
 Makefile.bak
+.env
