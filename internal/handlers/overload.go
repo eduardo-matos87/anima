@@ -8,12 +8,14 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type overloadReq struct {
 	ExercicioID int64 `json:"exercicio_id"`
 	Window      int   `json:"window,omitempty"` // 3..12 (default 5)
 }
+
 type overloadResp struct {
 	SuggestedCargaKg float64 `json:"suggested_carga_kg"`
 	SuggestedReps    int     `json:"suggested_repeticoes"`
@@ -60,7 +62,7 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			in.Window = 5
 		}
 
-		uid := r.Header.Get("X-User-ID")
+		userID := strings.TrimSpace(GetUserID(r))
 
 		var (
 			avgCarga float64
@@ -68,95 +70,61 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			n        int
 		)
 
-		// Estatística base (prioriza usuário, cai para global)
+		// Janela 12: usa estatística pré-agrupada
 		if in.Window == 12 {
-			if uid != "" {
-				err := db.QueryRow(`
-					SELECT avg_carga_kg::float8, avg_rir::float8, sample_count
+			if userID != "" {
+				// por usuário + exercício (MV)
+				row := db.QueryRow(`
+					SELECT
+					  COALESCE(avg_carga_kg::float8, 0),
+					  COALESCE(avg_rir::float8, 1.5),
+					  COALESCE(sample_count, 0)
 					FROM workout_overload_stats12_user_mv
 					WHERE user_id = $1 AND exercicio_id = $2
-				`, uid, in.ExercicioID).Scan(&avgCarga, &avgRIR, &n)
-
-				if err == sql.ErrNoRows {
-					err = db.QueryRow(`
-						SELECT avg_carga_kg::float8, avg_rir::float8, sample_count
-						FROM workout_overload_stats12
-						WHERE exercicio_id = $1
-					`, in.ExercicioID).Scan(&avgCarga, &avgRIR, &n)
-				}
-				if err == sql.ErrNoRows {
-					avgCarga, avgRIR, n = 0, 1.5, 0
-					err = nil
-				}
-				if err != nil {
+				`, userID, in.ExercicioID)
+				if err := row.Scan(&avgCarga, &avgRIR, &n); err != nil && err != sql.ErrNoRows {
 					internalErr(w, err)
 					return
 				}
-			} else {
-				err := db.QueryRow(`
-					SELECT avg_carga_kg::float8, avg_rir::float8, sample_count
+			}
+			// fallback global (sem user ou sem linha)
+			if n == 0 {
+				row := db.QueryRow(`
+					SELECT
+					  COALESCE(avg_carga_kg::float8, 0),
+					  COALESCE(avg_rir::float8, 1.5),
+					  COALESCE(sample_count, 0)
 					FROM workout_overload_stats12
 					WHERE exercicio_id = $1
-				`, in.ExercicioID).Scan(&avgCarga, &avgRIR, &n)
-				if err == sql.ErrNoRows {
-					avgCarga, avgRIR, n = 0, 1.5, 0
-					err = nil
-				}
-				if err != nil {
+				`, in.ExercicioID)
+				if err := row.Scan(&avgCarga, &avgRIR, &n); err != nil && err != sql.ErrNoRows {
 					internalErr(w, err)
 					return
 				}
 			}
 		} else {
-			if uid != "" {
-				err := db.QueryRow(`
-					SELECT COALESCE(AVG(weight_kg),0), COALESCE(AVG(rir),1.5), COUNT(*)
-					FROM (
-					  SELECT weight_kg, rir
-					  FROM workout_sets_recent12_user
-					  WHERE user_id = $1 AND exercicio_id = $2
-					  ORDER BY created_at DESC, id DESC
-					  LIMIT $3
-					) s
-				`, uid, in.ExercicioID, in.Window).Scan(&avgCarga, &avgRIR, &n)
-				if err != nil {
-					internalErr(w, err)
-					return
-				}
-				if n == 0 {
-					err = db.QueryRow(`
-						SELECT COALESCE(AVG(weight_kg),0), COALESCE(AVG(rir),1.5), COUNT(*)
-						FROM (
-						  SELECT weight_kg, rir
-						  FROM workout_sets
-						  WHERE exercicio_id = $1 AND completed = TRUE
-						  ORDER BY id DESC
-						  LIMIT $2
-						) s
-					`, in.ExercicioID, in.Window).Scan(&avgCarga, &avgRIR, &n)
-					if err != nil {
-						internalErr(w, err)
-						return
-					}
-				}
-			} else {
-				if err := db.QueryRow(`
-					SELECT COALESCE(AVG(weight_kg),0), COALESCE(AVG(rir),1.5), COUNT(*)
-					FROM (
-					  SELECT weight_kg, rir
-					  FROM workout_sets
-					  WHERE exercicio_id = $1 AND completed = TRUE
-					  ORDER BY id DESC
-					  LIMIT $2
-					) s
-				`, in.ExercicioID, in.Window).Scan(&avgCarga, &avgRIR, &n); err != nil {
-					internalErr(w, err)
-					return
-				}
+			// Janela 3..11: pega últimos N sets concluídos (schema novo: weight_kg/reps)
+			row := db.QueryRow(`
+			   SELECT
+			     COALESCE(AVG(weight_kg), 0) AS avg_carga,
+			     COALESCE(AVG(rir), 1.5)     AS avg_rir,
+			     COUNT(*)                     AS n
+			   FROM (
+			     SELECT weight_kg, rir
+			     FROM workout_sets
+			     WHERE exercicio_id = $1
+			       AND completed = TRUE
+			     ORDER BY id DESC
+			     LIMIT $2
+			   ) s
+			`, in.ExercicioID, in.Window)
+			if err := row.Scan(&avgCarga, &avgRIR, &n); err != nil {
+				internalErr(w, err)
+				return
 			}
 		}
 
-		// Sem amostras
+		// sem amostras: resposta neutra
 		if n == 0 {
 			resp := overloadResp{
 				SuggestedCargaKg: 0,
@@ -171,7 +139,7 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			return
 		}
 
-		// Regra simples com base no RIR
+		// regra adaptativa
 		sugCarga := roundTo(avgCarga, 0.5)
 		sugReps := 10
 		rationale := "RIR moderado, manter carga"
@@ -201,54 +169,62 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 }
 
 func roundTo(v, step float64) float64 {
-	if step <= 0 {
-		return v
-	}
 	return math.Round(v/step) * step
 }
 
-// logging auxiliar (defensivo)
+// ===== logging auxiliar (defensivo) =====
+
 func insertOverloadLog(db *sql.DB, r *http.Request, in overloadReq, out overloadResp) {
 	userID := r.Header.Get("X-User-ID")
 	ip := clientIP(r)
 	ua := r.UserAgent()
 
+	// garante a tabela (caso a migração ainda não tenha sido aplicada)
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS overload_suggestions_log (
-		  id BIGSERIAL PRIMARY KEY,
-		  requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		  user_id TEXT, ip INET, user_agent TEXT,
-		  exercicio_id BIGINT NOT NULL, window_size INT NOT NULL,
-		  avg_carga_kg NUMERIC(10,2), avg_rir NUMERIC(10,2), sample_count INT,
-		  suggested_carga_kg NUMERIC(10,2), suggested_repeticoes INT, rationale TEXT
+		  id                   BIGSERIAL PRIMARY KEY,
+		  requested_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  user_id              TEXT,
+		  ip                   INET,
+		  user_agent           TEXT,
+		  exercicio_id         BIGINT NOT NULL,
+		  window_size          INT NOT NULL,
+		  avg_carga_kg         NUMERIC(10,2),
+		  avg_rir              NUMERIC(10,2),
+		  sample_count         INT,
+		  suggested_carga_kg   NUMERIC(10,2),
+		  suggested_repeticoes INT,
+		  rationale            TEXT
 		);
 	`)
 	if err != nil {
 		log.Printf("[overload_log] create table failed: %v", err)
 		return
 	}
-	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_overload_log_exercicio_at ON overload_suggestions_log (exercicio_id, requested_at DESC)`)
-	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_overload_log_user_at ON overload_suggestions_log (user_id, requested_at DESC)`)
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_overload_log_exercicio_at
+		  ON overload_suggestions_log (exercicio_id, requested_at DESC);
+	`)
+	if err != nil {
+		log.Printf("[overload_log] create index exercicio_at failed: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_overload_log_user_at
+		  ON overload_suggestions_log (user_id, requested_at DESC);
+	`)
+	if err != nil {
+		log.Printf("[overload_log] create index user_at failed: %v", err)
+	}
 
-	var uidArg any
-	if userID != "" {
-		uidArg = userID
-	}
-	var ipArg any
-	if ip != "" {
-		ipArg = ip
-	}
-	var uaArg any
-	if ua != "" {
-		uaArg = ua
-	}
-
+	// insert best-effort
 	_, err = db.Exec(`
 		INSERT INTO overload_suggestions_log
 		  (requested_at, user_id, ip, user_agent, exercicio_id, window_size,
 		   avg_carga_kg, avg_rir, sample_count, suggested_carga_kg, suggested_repeticoes, rationale)
-		VALUES (NOW(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-	`, uidArg, ipArg, uaArg, in.ExercicioID, in.Window,
+		VALUES (NOW(), $1, $2, $3, $4, $5,
+		        $6, $7, $8, $9, $10, $11)
+	`, nullString(userID), nullString(ip), nullString(ua),
+		in.ExercicioID, in.Window,
 		out.AvgCargaKg, out.AvgRIR, out.SampleCount, out.SuggestedCargaKg, out.SuggestedReps, out.Rationale)
 	if err != nil {
 		log.Printf("[overload_log] insert failed: %v", err)
@@ -269,4 +245,13 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// nullString retorna nil para strings vazias (útil para INSERTs opcionais)
+func nullString(s string) any {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return s
 }
