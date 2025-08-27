@@ -1,25 +1,70 @@
 name: CI
+
 on:
   push:
+    branches: [ main, develop, feat/**, fix/** ]
   pull_request:
+    branches: [ main, develop ]
+
 jobs:
-  backend:
+  test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [ '1.23.x' ]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: anima
+          POSTGRES_PASSWORD: anima
+          POSTGRES_DB: anima
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd="pg_isready -U anima"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-      - run: go build ./...
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: anima-frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+          go-version: ${{ matrix.go-version }}
+          check-latest: true
+
+      - name: Cache Go build
+        uses: actions/cache@v4
         with:
-          node-version: '18'
-      - run: npm ci || npm install
-      - run: npm run build --if-present
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go${{ matrix.go-version }}-
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Go mod download
+        run: go mod download
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgres://anima:anima@localhost:5432/anima?sslmode=disable
+        run: |
+          for f in $(ls -1 db/migrations/*_*.up.sql | sort); do
+            echo ">> applying $f"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        env:
+          DATABASE_URL: postgres://anima:anima@localhost:5432/anima?sslmode=disable
+        run: go test -race -count=1 ./...

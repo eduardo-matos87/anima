@@ -10,3 +10,7 @@ anima.db
 
 # DB local
 anima.db
+
+# locais
+Makefile.bak
+.env

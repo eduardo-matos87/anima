@@ -1,0 +1,53 @@
+name: Admin Refresh Overload MV
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente"
+        type: choice
+        required: true
+        options: [production, staging]
+        default: production
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    name: Refresh ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compute base URL
+        id: envurl
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            echo "BASE_URL=${{ secrets.PROD_API_BASE_URL }}" >> $GITHUB_OUTPUT
+          else
+            echo "BASE_URL=${{ secrets.STAGING_API_BASE_URL }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Call admin refresh endpoint
+        env:
+          BASE_URL: ${{ steps.envurl.outputs.BASE_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "Base URL not set for selected environment." >&2
+            exit 1
+          fi
+
+          echo "POST $BASE_URL/api/admin/overload/refresh"
+          set -e
+          http_code=$(curl -sS -o /tmp/body.txt -w "%{http_code}" -XPOST "$BASE_URL/api/admin/overload/refresh" \
+            -H "X-Admin-Token: $ADMIN_TOKEN")
+          cat /tmp/body.txt
+          echo
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            echo "Refresh OK"
+          else
+            echo "Refresh failed with HTTP $http_code" >&2
+            exit 1
+          fi

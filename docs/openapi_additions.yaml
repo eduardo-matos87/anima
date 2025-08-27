@@ -1,0 +1,167 @@
+openapi: 3.0.3
+info:
+  title: Anima API (additions)
+  version: "1.0"
+paths:
+  /api/treinos:
+    get:
+      summary: Listar treinos
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: nivel
+          schema: { type: string }
+        - in: query
+          name: objetivo
+          schema: { type: string }
+        - in: query
+          name: divisao
+          schema: { type: string }
+      responses:
+        "200": { description: OK }
+  /api/treinos/{id}:
+    get:
+      summary: Obter treino por ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: OK }
+        "404": { description: Not found }
+    patch:
+      summary: Atualizar treino (parcial)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                coach_notes: { type: string }
+                nivel: { type: string }
+                objetivo: { type: string }
+                divisao: { type: string }
+                dias: { type: integer, minimum: 1, maximum: 7 }
+                treino_key: { type: string }
+      responses:
+        "204": { description: Updated }
+  /api/sessions:
+    get:
+      summary: Listar sessões
+      responses:
+        "200": { description: OK }
+    post:
+      summary: Criar sessão
+      responses:
+        "201": { description: Created }
+  /api/sessions/{id}:
+    get:
+      summary: Obter sessão
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: OK }
+        "404": { description: Not found }
+  /api/sessions/update/{id}:
+    patch:
+      summary: Atualizar sessão (parcial)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Updated }
+    delete:
+      summary: Excluir sessão
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted }
+  /api/sessions/{id}/sets:
+    get:
+      summary: Listar sets da sessão
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: OK }
+    post:
+      summary: Criar set na sessão
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "201": { description: Created }
+  /api/sets/{id}:
+    patch:
+      summary: Atualizar set (parcial)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Updated }
+    delete:
+      summary: Excluir set
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted }
+  /api/overload/suggest:
+    get:
+      summary: Sugestão de carga/reps (progressive overload)
+      parameters:
+        - in: query
+          name: exercicio_id
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: window
+          schema: { type: integer, minimum: 3, maximum: 12, default: 5 }
+      responses:
+        "200": { description: OK }
+    post:
+      summary: Sugestão de carga/reps (progressive overload)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exercicio_id: { type: integer }
+                window: { type: integer, minimum: 3, maximum: 12, default: 5 }
+      responses:
+        "200": { description: OK }
+  /api/admin/overload/refresh:
+    post:
+      summary: Atualiza MV de overload
+      responses:
+        "200": { description: OK }
