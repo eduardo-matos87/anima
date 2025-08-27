@@ -250,9 +250,13 @@ func main() {
 	// Export CSV
 	mux.Handle("/api/admin/overload/export.csv", handlers.AdminOverloadExportCSV(db))
 
+	// PATCH /api/sets/batch  (atualização em lote)
+	mux.HandleFunc("/api/sets/batch", handlers.SetsBatch)
+
 	// ===== Perfil & Métricas do usuário =====
-	mux.Handle("/api/me/profile", handlers.MeProfile(db)) // GET/PATCH
-	mux.Handle("/api/me/metrics", handlers.MeMetrics(db)) // GET
+	mux.Handle("/api/me/profile", handlers.MeProfile(db))        // GET/PATCH
+	mux.Handle("/api/me/metrics", handlers.MeMetrics(db))        // GET
+	mux.Handle("/api/me/summary", handlers.MeSummaryHandler(db)) // GET
 
 	// ===== Server =====
 	srv := &http.Server{
