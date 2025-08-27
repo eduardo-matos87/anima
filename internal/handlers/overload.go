@@ -8,12 +8,14 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type overloadReq struct {
 	ExercicioID int64 `json:"exercicio_id"`
 	Window      int   `json:"window,omitempty"` // 3..12 (default 5)
 }
+
 type overloadResp struct {
 	SuggestedCargaKg float64 `json:"suggested_carga_kg"`
 	SuggestedReps    int     `json:"suggested_repeticoes"`
@@ -60,34 +62,55 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			in.Window = 5
 		}
 
+		userID := strings.TrimSpace(GetUserID(r))
+
 		var (
 			avgCarga float64
 			avgRIR   float64
 			n        int
 		)
 
-		// window==12 → view otimizada; senão subquery
+		// Janela 12: usa estatística pré-agrupada
 		if in.Window == 12 {
-			row := db.QueryRow(`
-				SELECT
-					COALESCE(avg_carga_kg::float8, 0),
-					COALESCE(avg_rir::float8, 1.5),
-					COALESCE(sample_count, 0)
-				FROM workout_overload_stats12
-				WHERE exercicio_id = $1
-			`, in.ExercicioID)
-			if err := row.Scan(&avgCarga, &avgRIR, &n); err != nil {
-				internalErr(w, err)
-				return
+			if userID != "" {
+				// por usuário + exercício (MV)
+				row := db.QueryRow(`
+					SELECT
+					  COALESCE(avg_carga_kg::float8, 0),
+					  COALESCE(avg_rir::float8, 1.5),
+					  COALESCE(sample_count, 0)
+					FROM workout_overload_stats12_user_mv
+					WHERE user_id = $1 AND exercicio_id = $2
+				`, userID, in.ExercicioID)
+				if err := row.Scan(&avgCarga, &avgRIR, &n); err != nil && err != sql.ErrNoRows {
+					internalErr(w, err)
+					return
+				}
+			}
+			// fallback global (sem user ou sem linha)
+			if n == 0 {
+				row := db.QueryRow(`
+					SELECT
+					  COALESCE(avg_carga_kg::float8, 0),
+					  COALESCE(avg_rir::float8, 1.5),
+					  COALESCE(sample_count, 0)
+					FROM workout_overload_stats12
+					WHERE exercicio_id = $1
+				`, in.ExercicioID)
+				if err := row.Scan(&avgCarga, &avgRIR, &n); err != nil && err != sql.ErrNoRows {
+					internalErr(w, err)
+					return
+				}
 			}
 		} else {
+			// Janela 3..11: pega últimos N sets concluídos (schema novo: weight_kg/reps)
 			row := db.QueryRow(`
 			   SELECT
-			     COALESCE(AVG(carga_kg), 0) AS avg_carga,
-			     COALESCE(AVG(rir), 1.5)    AS avg_rir,
-			     COUNT(*)                    AS n
+			     COALESCE(AVG(weight_kg), 0) AS avg_carga,
+			     COALESCE(AVG(rir), 1.5)     AS avg_rir,
+			     COUNT(*)                     AS n
 			   FROM (
-			     SELECT carga_kg, rir
+			     SELECT weight_kg, rir
 			     FROM workout_sets
 			     WHERE exercicio_id = $1
 			       AND completed = TRUE
@@ -222,4 +245,13 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// nullString retorna nil para strings vazias (útil para INSERTs opcionais)
+func nullString(s string) any {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return s
 }

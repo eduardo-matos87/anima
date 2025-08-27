@@ -70,7 +70,7 @@ func main() {
 	}
 	log.Println("[anima] conectado ao Postgres")
 
-	// Injeta DB nos wrappers compat (sessions/sets/overload)
+	// Injeta DB para handlers compatíveis que usam variável interna
 	handlers.SetSessionsDB(db)
 
 	// ===== Mux =====
@@ -103,7 +103,7 @@ func main() {
 
 	// ===== Treinos (coleção) =====
 	// GET /api/treinos (listagem)
-	// POST /api/treinos (não implementado ainda -> 501)
+	// POST /api/treinos (por enquanto não implementado nesta branch)
 	mux.HandleFunc("/api/treinos", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -115,13 +115,24 @@ func main() {
 		}
 	})
 
+	// ===== Treinos (by-key) =====
+	// GET /api/treinos/by-key/{key}
+	mux.HandleFunc("/api/treinos/by-key/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.TreinosGetByKey(db).ServeHTTP(w, r)
+	})
+
 	// ===== Treinos (item) =====
 	// GET /api/treinos/{id}
 	// PATCH /api/treinos/{id}
 	mux.HandleFunc("/api/treinos/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		// evita conflitar com /by-key (já roteado acima)
 		if strings.HasPrefix(path, "/api/treinos/by-key/") {
-			http.Error(w, "not implemented (/api/treinos/by-key)", http.StatusNotImplemented)
+			http.NotFound(w, r)
 			return
 		}
 		switch r.Method {
@@ -176,6 +187,7 @@ func main() {
 		handlers.PlanWeeklySave(db).ServeHTTP(w, r)
 	})
 
+	// ===== Sets (item) =====
 	// /api/sets/{id}  (PATCH/DELETE)
 	mux.HandleFunc("/api/sets/", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -188,14 +200,14 @@ func main() {
 		}
 	})
 
-	// ===== Sessions & Sets (wrappers w,r) =====
-	// /api/sessions        GET (list), POST (create)
+	// ===== Sessions & Sets =====
+	// /api/sessions  (GET lista | POST cria)
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			handlers.SessionsList(w, r)
+			handlers.SessionsList(w, r) // assinatura HandlerFunc
 		case http.MethodPost:
-			handlers.SessionsCreate(w, r)
+			handlers.SessionsCreate(db).ServeHTTP(w, r) // factory que usa *sql.DB
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -242,7 +254,9 @@ func main() {
 
 	// ===== Admin: Overload =====
 	// Refresh MV
-	mux.Handle("/api/admin/overload/refresh", handlers.AdminOverloadRefresh(db))
+	mux.HandleFunc("/api/admin/overload/refresh", func(w http.ResponseWriter, r *http.Request) {
+		handlers.OverloadRefreshMV(db).ServeHTTP(w, r)
+	})
 	// Logs (list)
 	mux.Handle("/api/admin/overload/logs", handlers.AdminOverloadLogs(db))
 	// Stats agregadas
@@ -264,7 +278,7 @@ func main() {
 		Handler: withCORS(
 			handlers.RequestID(
 				handlers.OptionalAuth( // captura user_id de JWT se presente
-					handlers.JSONSafe( // limite de body + valida JSON nos métodos com body
+					handlers.JSONSafe( // valida Content-Type e limita body
 						handlers.WrapLogging(
 							handlers.Recover(mux),
 						),
