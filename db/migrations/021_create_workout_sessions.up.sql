@@ -2,14 +2,14 @@
 CREATE TABLE IF NOT EXISTS workout_sessions (
   id          BIGSERIAL PRIMARY KEY,
   treino_id   BIGINT NOT NULL,
-  session_at  TIMESTAMPTZ NOT NULL,
+  started_at  TIMESTAMPTZ NOT NULL,
   notes       TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_workout_sessions_treino_id ON workout_sessions (treino_id);
-CREATE INDEX IF NOT EXISTS idx_workout_sessions_session_at ON workout_sessions (session_at);
+CREATE INDEX IF NOT EXISTS IF NOT EXISTS idx_workout_sessions_treino_id ON workout_sessions (treino_id);
+CREATE INDEX IF NOT EXISTS IF NOT EXISTS idx_workout_sessions_session_at ON workout_sessions (started_at);
 
 DO $$
 BEGIN
