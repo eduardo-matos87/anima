@@ -2,8 +2,11 @@ name: DB Validate & Drift
 
 on:
   pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
   push:
-    branches: [ "main", "sprint/**", "chore/**", "feat/**", "fix/**" ]
+    branches: [ main, "sprint/**", "chore/**", "feat/**", "fix/**" ]
+  workflow_dispatch:
 
 jobs:
   db-validate:
@@ -27,7 +30,6 @@ jobs:
       PGPORT: 5432
       PGUSER: postgres
       PGPASSWORD: postgres
-      # Usuário/app DB (usado pelos scripts/Make)
       APP_DB_USER: anima
       APP_DB_PASS: anima
       APP_DB_NAME: anima
@@ -42,11 +44,11 @@ jobs:
 
       - name: Create app role & db
         run: |
-          psql -h $PGHOST -U $PGUSER -c "DO \$\$ BEGIN
+          psql -h $PGHOST -U $PGUSER -c "DO $$ BEGIN
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${APP_DB_USER}') THEN
               CREATE ROLE ${APP_DB_USER} LOGIN PASSWORD '${APP_DB_PASS}' SUPERUSER;
             END IF;
-          END \$\$;"
+          END $$;"
           psql -h $PGHOST -U $PGUSER -c "SELECT 1 FROM pg_database WHERE datname='${APP_DB_NAME}'" | grep -q 1 || \
           psql -h $PGHOST -U $PGUSER -c "CREATE DATABASE ${APP_DB_NAME} OWNER ${APP_DB_USER};"
 
@@ -56,9 +58,7 @@ jobs:
           psql -h $PGHOST -U $PGUSER -c "SELECT version();"
 
       - name: Validate migrations
-        run: |
-          make db-validate
+        run: make db-validate
 
       - name: Drift check
-        run: |
-          make db-drift
+        run: make db-drift
