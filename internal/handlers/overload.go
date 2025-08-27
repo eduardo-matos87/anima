@@ -10,13 +10,10 @@ import (
 	"strconv"
 )
 
-// ===== tipos =====
-
 type overloadReq struct {
 	ExercicioID int64 `json:"exercicio_id"`
 	Window      int   `json:"window,omitempty"` // 3..12 (default 5)
 }
-
 type overloadResp struct {
 	SuggestedCargaKg float64 `json:"suggested_carga_kg"`
 	SuggestedReps    int     `json:"suggested_repeticoes"`
@@ -26,8 +23,6 @@ type overloadResp struct {
 	SampleCount      int     `json:"sample_count"`
 }
 
-// ===== handler =====
-//
 // POST /api/overload/suggest
 // GET  /api/overload/suggest?exercicio_id=10&window=5
 // GET  /api/suggestions/next-load?exercicio_id=10&window=5 (legacy)
@@ -65,7 +60,7 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			in.Window = 5
 		}
 
-		uid := r.Header.Get("X-User-ID") // se presente, priorizamos histórico por usuário
+		uid := r.Header.Get("X-User-ID")
 
 		var (
 			avgCarga float64
@@ -73,48 +68,49 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			n        int
 		)
 
-		// ===== Estatística base =====
-		// Prioriza histórico do USUÁRIO (views/MV criadas nas migrations 023/024).
-		// Cai para o global se não houver user_id ou amostras.
+		// Estatística base (prioriza usuário, cai para global)
 		if in.Window == 12 {
-			// via MV por usuário (rápido)
 			if uid != "" {
 				err := db.QueryRow(`
 					SELECT avg_carga_kg::float8, avg_rir::float8, sample_count
 					FROM workout_overload_stats12_user_mv
 					WHERE user_id = $1 AND exercicio_id = $2
 				`, uid, in.ExercicioID).Scan(&avgCarga, &avgRIR, &n)
+
 				if err == sql.ErrNoRows {
-					// fallback global
 					err = db.QueryRow(`
-						SELECT COALESCE(avg_carga_kg::float8,0), COALESCE(avg_rir::float8,1.5), COALESCE(sample_count,0)
+						SELECT avg_carga_kg::float8, avg_rir::float8, sample_count
 						FROM workout_overload_stats12
 						WHERE exercicio_id = $1
 					`, in.ExercicioID).Scan(&avgCarga, &avgRIR, &n)
+				}
+				if err == sql.ErrNoRows {
+					avgCarga, avgRIR, n = 0, 1.5, 0
+					err = nil
 				}
 				if err != nil {
 					internalErr(w, err)
 					return
 				}
 			} else {
-				// sem uid → global
-				if err := db.QueryRow(`
-					SELECT COALESCE(avg_carga_kg::float8,0), COALESCE(avg_rir::float8,1.5), COALESCE(sample_count,0)
+				err := db.QueryRow(`
+					SELECT avg_carga_kg::float8, avg_rir::float8, sample_count
 					FROM workout_overload_stats12
 					WHERE exercicio_id = $1
-				`, in.ExercicioID).Scan(&avgCarga, &avgRIR, &n); err != nil {
+				`, in.ExercicioID).Scan(&avgCarga, &avgRIR, &n)
+				if err == sql.ErrNoRows {
+					avgCarga, avgRIR, n = 0, 1.5, 0
+					err = nil
+				}
+				if err != nil {
 					internalErr(w, err)
 					return
 				}
 			}
 		} else {
-			// Janela custom: usa a view por-usuário quando possível
 			if uid != "" {
 				err := db.QueryRow(`
-					SELECT
-					  COALESCE(AVG(weight_kg), 0),
-					  COALESCE(AVG(rir), 1.5),
-					  COUNT(*)
+					SELECT COALESCE(AVG(weight_kg),0), COALESCE(AVG(rir),1.5), COUNT(*)
 					FROM (
 					  SELECT weight_kg, rir
 					  FROM workout_sets_recent12_user
@@ -128,12 +124,8 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 					return
 				}
 				if n == 0 {
-					// fallback global
 					err = db.QueryRow(`
-						SELECT
-						  COALESCE(AVG(weight_kg), 0),
-						  COALESCE(AVG(rir), 1.5),
-						  COUNT(*)
+						SELECT COALESCE(AVG(weight_kg),0), COALESCE(AVG(rir),1.5), COUNT(*)
 						FROM (
 						  SELECT weight_kg, rir
 						  FROM workout_sets
@@ -148,12 +140,8 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 					}
 				}
 			} else {
-				// sem uid → global
 				if err := db.QueryRow(`
-					SELECT
-					  COALESCE(AVG(weight_kg), 0),
-					  COALESCE(AVG(rir), 1.5),
-					  COUNT(*)
+					SELECT COALESCE(AVG(weight_kg),0), COALESCE(AVG(rir),1.5), COUNT(*)
 					FROM (
 					  SELECT weight_kg, rir
 					  FROM workout_sets
@@ -168,7 +156,7 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			}
 		}
 
-		// Sem amostras: resposta neutra
+		// Sem amostras
 		if n == 0 {
 			resp := overloadResp{
 				SuggestedCargaKg: 0,
@@ -183,13 +171,11 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 			return
 		}
 
-		// Heurística simples (com base no RIR médio)
+		// Regra simples com base no RIR
 		sugCarga := roundTo(avgCarga, 0.5)
 		sugReps := 10
 		rationale := "RIR moderado, manter carga"
-
 		switch {
-		// Mais conservador para janelas curtas, mas claro nas sugestões:
 		case avgRIR >= 2.5:
 			sugCarga = roundTo(avgCarga+5.0, 0.5)
 			rationale = "RIR muito alto, sugere +5kg"
@@ -214,8 +200,6 @@ func OverloadSuggest(db *sql.DB) http.Handler {
 	})
 }
 
-// ===== helpers locais =====
-
 func roundTo(v, step float64) float64 {
 	if step <= 0 {
 		return v
@@ -229,52 +213,42 @@ func insertOverloadLog(db *sql.DB, r *http.Request, in overloadReq, out overload
 	ip := clientIP(r)
 	ua := r.UserAgent()
 
-	// garante a tabela (caso a migração ainda não tenha sido aplicada)
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS overload_suggestions_log (
-		  id                   BIGSERIAL PRIMARY KEY,
-		  requested_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		  user_id              TEXT,
-		  ip                   INET,
-		  user_agent           TEXT,
-		  exercicio_id         BIGINT NOT NULL,
-		  window_size          INT NOT NULL,
-		  avg_carga_kg         NUMERIC(10,2),
-		  avg_rir              NUMERIC(10,2),
-		  sample_count         INT,
-		  suggested_carga_kg   NUMERIC(10,2),
-		  suggested_repeticoes INT,
-		  rationale            TEXT
+		  id BIGSERIAL PRIMARY KEY,
+		  requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  user_id TEXT, ip INET, user_agent TEXT,
+		  exercicio_id BIGINT NOT NULL, window_size INT NOT NULL,
+		  avg_carga_kg NUMERIC(10,2), avg_rir NUMERIC(10,2), sample_count INT,
+		  suggested_carga_kg NUMERIC(10,2), suggested_repeticoes INT, rationale TEXT
 		);
 	`)
 	if err != nil {
 		log.Printf("[overload_log] create table failed: %v", err)
 		return
 	}
-	_, err = db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_overload_log_exercicio_at
-		  ON overload_suggestions_log (exercicio_id, requested_at DESC);
-	`)
-	if err != nil {
-		log.Printf("[overload_log] create index exercicio_at failed: %v", err)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_overload_log_exercicio_at ON overload_suggestions_log (exercicio_id, requested_at DESC)`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_overload_log_user_at ON overload_suggestions_log (user_id, requested_at DESC)`)
+
+	var uidArg any
+	if userID != "" {
+		uidArg = userID
 	}
-	_, err = db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_overload_log_user_at
-		  ON overload_suggestions_log (user_id, requested_at DESC);
-	`)
-	if err != nil {
-		log.Printf("[overload_log] create index user_at failed: %v", err)
+	var ipArg any
+	if ip != "" {
+		ipArg = ip
+	}
+	var uaArg any
+	if ua != "" {
+		uaArg = ua
 	}
 
-	// insert best-effort
 	_, err = db.Exec(`
 		INSERT INTO overload_suggestions_log
 		  (requested_at, user_id, ip, user_agent, exercicio_id, window_size,
 		   avg_carga_kg, avg_rir, sample_count, suggested_carga_kg, suggested_repeticoes, rationale)
-		VALUES (NOW(), $1, $2, $3, $4, $5,
-		        $6, $7, $8, $9, $10, $11)
-	`, nullString(userID), nullString(ip), nullString(ua),
-		in.ExercicioID, in.Window,
+		VALUES (NOW(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	`, uidArg, ipArg, uaArg, in.ExercicioID, in.Window,
 		out.AvgCargaKg, out.AvgRIR, out.SampleCount, out.SuggestedCargaKg, out.SuggestedReps, out.Rationale)
 	if err != nil {
 		log.Printf("[overload_log] insert failed: %v", err)
