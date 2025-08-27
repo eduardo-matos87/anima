@@ -25,7 +25,11 @@ MIGRATIONS_DIR = ./db/migrations
 
 # ===== App =====
 run:
-	go run ./...
+	@PORT?=8081
+	@DATABASE_URL?=postgres://anima:anima@localhost:5432/anima?sslmode=disable
+	@echo "== Run API =="
+	PORT=$$PORT DATABASE_URL=$$DATABASE_URL go run .
+
 
 # ===== Banco / migrações utilitárias =====
 
@@ -79,3 +83,16 @@ db-refresh-overload:
 			psql -h $(PGHOST) -p $(PGPORT) -U $(PGUSER) -d $(PGDATABASE) -c "REFRESH MATERIALIZED VIEW CONCURRENTLY workout_overload_stats12_mv;" || \
 			psql -h $(PGHOST) -p $(PGPORT) -U $(PGUSER) -d $(PGDATABASE) -c "REFRESH MATERIALIZED VIEW workout_overload_stats12_mv;"; \
 		fi'
+
+.PHONY: db-seed
+db-seed:
+	@echo "== Applying seeds in db/seeds (lexicographic order) =="
+	@if [ -n "$$DATABASE_URL" ]; then \
+		for f in $$(ls -1 db/seeds/*.sql 2>/dev/null | sort); do \
+			echo ">> $$f"; psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$$f"; \
+		done; \
+	else \
+		for f in $$(ls -1 db/seeds/*.sql 2>/dev/null | sort); do \
+			echo ">> $$f"; psql -h $(PGHOST) -p $(PGPORT) -U $(PGUSER) -d $(PGDATABASE) -v ON_ERROR_STOP=1 -f "$$f"; \
+		done; \
+	fi

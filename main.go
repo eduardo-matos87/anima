@@ -45,7 +45,7 @@ func docsHandler(w http.ResponseWriter, r *http.Request) {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID, X-Admin-Token, X-Request-ID")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, PUT, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -144,25 +144,19 @@ func main() {
 		handlers.GenerateTreino(db).ServeHTTP(w, r)
 	})
 
-	// Progressive Overload (GET) — rota legacy compat
+	// ===== Overload (compat legacy) =====
+	// GET /api/suggestions/next-load
 	mux.HandleFunc("/api/suggestions/next-load", func(w http.ResponseWriter, r *http.Request) {
-		// usamos o wrapper (w,r)
 		handlers.NextLoad(w, r)
 	})
 
-	// Admin: refresh MV de overload
-	mux.Handle("/api/admin/overload/refresh", handlers.AdminOverloadRefresh(db))
-
-	// === Overload (POST) ===
-	// === Overload ===
-	mux.HandleFunc("/api/overload/suggest", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet, http.MethodPost:
-			handlers.OverloadSuggest(db).ServeHTTP(w, r)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	// ===== Overload (GET/POST) com rate limit por ENV =====
+	// RATE_LIMIT_OVERLOAD (default 60) — por IP/usuário
+	mux.Handle("/api/overload/suggest",
+		handlers.RateLimit(handlers.AtoiEnvInt("RATE_LIMIT_OVERLOAD", 60))(
+			handlers.OverloadSuggest(db),
+		),
+	)
 
 	// ===== Planner semanal =====
 	// GET /api/plan/weekly
@@ -174,7 +168,6 @@ func main() {
 		}
 		handlers.PlanWeekly(db).ServeHTTP(w, r)
 	})
-
 	mux.HandleFunc("/api/plan/weekly/save", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -195,7 +188,7 @@ func main() {
 		}
 	})
 
-	// ===== Histórico: Sessions & Sets (usando wrappers (w,r)) =====
+	// ===== Sessions & Sets (wrappers w,r) =====
 	// /api/sessions        GET (list), POST (create)
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -247,10 +240,34 @@ func main() {
 		}
 	})
 
+	// ===== Admin: Overload =====
+	// Refresh MV
+	mux.Handle("/api/admin/overload/refresh", handlers.AdminOverloadRefresh(db))
+	// Logs (list)
+	mux.Handle("/api/admin/overload/logs", handlers.AdminOverloadLogs(db))
+	// Stats agregadas
+	mux.Handle("/api/admin/overload/stats", handlers.AdminOverloadStats(db))
+	// Export CSV
+	mux.Handle("/api/admin/overload/export.csv", handlers.AdminOverloadExportCSV(db))
+
+	// ===== Perfil & Métricas do usuário =====
+	mux.Handle("/api/me/profile", handlers.MeProfile(db)) // GET/PATCH
+	mux.Handle("/api/me/metrics", handlers.MeMetrics(db)) // GET
+
 	// ===== Server =====
 	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      withCORS(handlers.WrapLogging(mux)),
+		Addr: ":" + port,
+		Handler: withCORS(
+			handlers.RequestID(
+				handlers.OptionalAuth( // captura user_id de JWT se presente
+					handlers.JSONSafe( // limite de body + valida JSON nos métodos com body
+						handlers.WrapLogging(
+							handlers.Recover(mux),
+						),
+					),
+				),
+			),
+		),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

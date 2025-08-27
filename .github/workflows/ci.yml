@@ -1,25 +1,99 @@
 name: CI
+
 on:
   push:
+    branches: [ main, master, develop, feat/**, fix/**, chore/** ]
   pull_request:
+    branches: [ "**" ]
+
+permissions:
+  contents: read
+
 jobs:
-  backend:
+  build-test:
+    name: Build & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        go-version: ["1.23.x"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-      - run: go build ./...
-  frontend:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Verify formatting (gofmt -s)
+        run: |
+          bad="$(gofmt -s -l .)"
+          if [ -n "$bad" ]; then
+            echo "These files are not gofmt'ed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+  db-drift:
+    name: DB Drift / Validate (optional)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: anima-frontend
+    needs: build-test
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: anima
+          POSTGRES_USER: anima
+          POSTGRES_PASSWORD: anima
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U anima -d anima"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      # Conexão padrão usada pelo seu app/scripts
+      DATABASE_URL: postgres://anima:anima@localhost:5432/anima?sslmode=disable
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: anima
+      PGPASSWORD: anima
+      PGDATABASE: anima
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      - run: npm ci || npm install
-      - run: npm run build --if-present
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" && break
+            sleep 1
+          done
+
+      # Se suas migrações forem só SQL simples e idempotentes, você pode aplicá-las aqui.
+      # Ex.: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/021_create_workout_sessions.up.sql
+      # Por padrão, deixo sem aplicar (depende do seu runner/goose).
+      - name: Drift / Validate (if tools/drift_check.sh exists)
+        shell: bash
+        run: |
+          if [ -x tools/drift_check.sh ]; then
+            echo "tools/drift_check.sh found — running validate…"
+            ./tools/drift_check.sh validate
+            echo "Running drift…"
+            ./tools/drift_check.sh drift
+          else
+            echo "tools/drift_check.sh not found — skipping DB drift."
+          fi

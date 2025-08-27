@@ -521,3 +521,96 @@ components:
         completed: { type: boolean, nullable: true }
         rest_sec: { type: integer, nullable: true }
         set_index: { type: integer, nullable: true }
+
+  /api/admin/overload/logs:
+    get:
+      summary: Listar logs de overload (admin)
+      parameters:
+        - in: query; name: exercicio_id; schema: { type: integer }
+        - in: query; name: user_id; schema: { type: string }
+        - in: query; name: from; schema: { type: string, format: date-time }
+        - in: query; name: to; schema: { type: string, format: date-time }
+        - in: query; name: page; schema: { type: integer, default: 1 }
+        - in: query; name: page_size; schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        "200": { description: OK }
+
+  /api/admin/overload/stats:
+    get:
+      summary: Estatísticas agregadas (admin)
+      parameters:
+        - in: query; name: group; schema: { type: string, enum: [exercicio, day, hour], default: exercicio }
+        - in: query; name: exercicio_id; schema: { type: integer }
+        - in: query; name: from; schema: { type: string, format: date-time }
+        - in: query; name: to; schema: { type: string, format: date-time }
+        - in: query; name: limit; schema: { type: integer, default: 30, maximum: 1000 }
+      responses:
+        "200": { description: OK }
+
+  /api/admin/overload/export.csv:
+    get:
+      summary: Exportar logs de overload (CSV)
+      parameters:
+        - in: query; name: exercicio_id; schema: { type: integer }
+        - in: query; name: user_id; schema: { type: string }
+        - in: query; name: from; schema: { type: string, format: date-time }
+        - in: query; name: to; schema: { type: string, format: date-time }
+        - in: query; name: limit; schema: { type: integer, default: 10000, maximum: 100000 }
+      responses:
+        "200":
+          description: CSV stream
+          content:
+            text/csv: {}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  security:
+  - bearerAuth: []
+
+  /api/me/profile:
+    get:
+      summary: Ler perfil do usuário atual
+      responses:
+        "200": { description: OK }
+        "401": { description: Missing user id }
+    patch:
+      summary: Atualizar perfil do usuário (parcial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                height_cm: { type: number }
+                weight_kg: { type: number }
+                birth_year: { type: integer }
+                gender: { type: string }
+                level: { type: string }
+                goal: { type: string }
+      responses:
+        "200": { description: OK }
+        "400": { description: Validation error }
+        "401": { description: Missing user id }
+
+  /api/me/metrics:
+    get:
+      summary: Métricas pessoais a partir dos logs de overload
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: top
+          schema: { type: integer, default: 10, maximum: 100 }
+      responses:
+        "200": { description: OK }
+        "401": { description: Missing user id }
