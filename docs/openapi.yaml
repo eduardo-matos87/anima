@@ -1,616 +1,765 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
   title: Anima API
-  version: "0.1.0"
-  description: >
-    API do Anima (Go + Postgres) para geração e gestão de treinos com IA,
-    planner semanal e histórico de treinos (sessions/sets).
+  version: "1.0.0"
+  description: |
+    API do Anima (treinos, sessões, sets, overload e perfil do usuário).
+    Alguns endpoints consideram o cabeçalho **X-User-ID** como forma simples de autenticação
+    (até todos os clientes enviarem JWT). Endpoints administrativos usam **X-Admin-Token**.
 
 servers:
   - url: http://localhost:8081
     description: Local
 
-security:
-  - UserIdHeader: []
+tags:
+  - name: Sessions
+  - name: Sets
+  - name: Overload
+  - name: Me
+  - name: Treinos
+  - name: Catalog
+  - name: Admin
+  - name: Planner
+  - name: Health
 
 paths:
   /health:
     get:
-      summary: Verifica saúde do serviço
+      tags: [Health]
+      summary: Healthcheck
       responses:
         "200":
-          description: OK
+          description: ok
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  ok: { type: boolean, example: true }
+                  ok: { type: boolean }
 
   /api/exercises:
     get:
-      summary: Lista exercícios do catálogo
-      parameters:
-        - in: query
-          name: page
-          schema: { type: integer, minimum: 1, default: 1 }
-        - in: query
-          name: per_page
-          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
-        - in: query
-          name: search
-          schema: { type: string }
-        - in: query
-          name: muscle_group
-          schema: { type: string }
+      tags: [Catalog]
+      summary: Lista exercícios
       responses:
         "200":
-          description: Lista paginada de exercícios
+          description: lista de exercícios
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PaginatedExercises"
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
 
   /api/treinos:
     get:
+      tags: [Treinos]
       summary: Lista treinos (paginado)
       parameters:
-        - in: query
-          name: page
-          schema: { type: integer, minimum: 1, default: 1 }
-        - in: query
-          name: per_page
-          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         "200":
-          description: OK
+          description: ok
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PaginatedTreinos"
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total_hint: { type: integer }
 
   /api/treinos/{id}:
     get:
-      summary: Obtém treino por ID
+      tags: [Treinos]
+      summary: Detalhe do treino
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
+        - $ref: '#/components/parameters/TreinoIdPath'
       responses:
         "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Treino"
-
-  /api/treinos/generate:
-    post:
-      summary: Gera treino (v1.1) com descanso por exercício e notas de coach
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GenerateRequest"
-      responses:
-        "200":
-          description: Gerado (e possivelmente persistido)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GenerateResponse"
-
-  /api/plan/weekly:
-    get:
-      summary: Monta planner semanal (preview, não persiste)
-      parameters:
-        - in: query
-          name: divisao
-          required: true
-          schema: { $ref: "#/components/schemas/DivisaoEnum" }
-        - in: query
-          name: days
-          required: true
-          schema: { type: integer, minimum: 1, maximum: 7 }
-        - in: query
-          name: objetivo
-          schema: { $ref: "#/components/schemas/ObjetivoEnum" }
-        - in: query
-          name: nivel
-          schema: { $ref: "#/components/schemas/NivelEnum" }
-      responses:
-        "200":
-          description: OK (preview)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WeeklyPlanPreviewResponse"
-
-  /api/plan/weekly/save:
-    post:
-      summary: Persiste N treinos do planner semanal
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/WeeklyPlanSaveRequest"
-      responses:
-        "201":
-          description: Criado
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WeeklyPlanSaveResponse"
-
-  /api/me/summary:
-    get:
-      summary: Resumo do usuário (idade, IMC, objetivo, recomendações)
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserSummary"
-
-  /api/sessions:
-    get:
-      summary: Lista sessões de treino do usuário
-      parameters:
-        - in: query
-          name: limit
-          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
-        - in: query
-          name: offset
-          schema: { type: integer, minimum: 0, default: 0 }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PaginatedSessions"
-    post:
-      summary: Cria uma nova sessão de treino
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SessionCreateReq"
-      responses:
-        "201":
-          description: Criado
+          description: ok
           content:
             application/json:
               schema:
                 type: object
-                properties:
-                  id: { type: integer, example: 123 }
-
-  /api/sessions/{id}:
-    get:
-      summary: Detalha uma sessão de treino
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Session"
+        "404": { $ref: '#/components/responses/NotFound' }
     patch:
-      summary: Atualiza campos da sessão (ended_at, duration_sec, notes)
+      tags: [Treinos]
+      summary: Atualiza campos do treino (ex. coach_notes)
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SessionPatchReq"
-      responses:
-        "200":
-          description: Atualizado
-    delete:
-      summary: Remove a sessão (e sets em cascata)
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: Deletado
-
-  /api/sessions/{id}/sets:
-    get:
-      summary: Lista séries (sets) de uma sessão
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/WorkoutSet" }
-    post:
-      summary: Cria uma série (set) na sessão
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SetCreateReq"
-      responses:
-        "201":
-          description: Criado
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id: { type: integer, example: 456 }
-
-  /api/sessions/{id}/sets/{setId}:
-    patch:
-      summary: Atualiza uma série (set) da sessão
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
-        - in: path
-          name: setId
-          required: true
-          schema: { type: integer }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SetPatchReq"
-      responses:
-        "200":
-          description: Atualizado
-    delete:
-      summary: Remove uma série (set) da sessão
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer }
-        - in: path
-          name: setId
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: Deletado
-
-components:
-  securitySchemes:
-    UserIdHeader:
-      type: apiKey
-      in: header
-      name: X-User-ID
-
-  schemas:
-    ObjetivoEnum:
-      type: string
-      enum: [hipertrofia, forca, resistencia]
-    NivelEnum:
-      type: string
-      enum: [iniciante, intermediario, avancado]
-    DivisaoEnum:
-      type: string
-      enum: [fullbody, upperlower, ppl, push, pull, legs]
-
-    Exercise:
-      type: object
-      properties:
-        id: { type: integer }
-        nome: { type: string }
-        muscle_group: { type: string }
-        difficulty: { type: string }
-        equipment: { type: string }
-
-    PaginatedExercises:
-      type: object
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/Exercise" }
-        next: { type: integer, nullable: true }
-        count: { type: integer }
-
-    TreinoExercicio:
-      type: object
-      properties:
-        exercicio_id: { type: integer }
-        nome: { type: string }
-        series: { type: integer }
-        repeticoes: { type: string }
-        descanso_seg: { type: integer }
-
-    Treino:
-      type: object
-      properties:
-        id: { type: integer }
-        treino_id: { type: string }
-        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
-        nivel: { $ref: "#/components/schemas/NivelEnum" }
-        dias: { type: integer }
-        divisao: { $ref: "#/components/schemas/DivisaoEnum" }
-        coach_notes: { type: string }
-        exercicios:
-          type: array
-          items: { $ref: "#/components/schemas/TreinoExercicio" }
-
-    PaginatedTreinos:
-      type: object
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/Treino" }
-        next: { type: integer, nullable: true }
-        count: { type: integer }
-
-    GenerateRequest:
-      type: object
-      required: [objetivo, nivel, divisao]
-      properties:
-        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
-        nivel: { $ref: "#/components/schemas/NivelEnum" }
-        divisao: { $ref: "#/components/schemas/DivisaoEnum" }
-        dias: { type: integer, minimum: 1 }
-        persist: { type: boolean, default: true }
-        treino_id: { type: string }
-
-    GenerateResponse:
-      type: object
-      properties:
-        id: { type: integer, nullable: true }
-        treino_id: { type: string }
-        exercicios:
-          type: array
-          items: { $ref: "#/components/schemas/TreinoExercicio" }
-        coach_notes: { type: string }
-
-    WeeklyPlanPreviewItem:
-      type: object
-      properties:
-        day_index: { type: integer }
-        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
-        nivel: { $ref: "#/components/schemas/NivelEnum" }
-        divisao_base: { $ref: "#/components/schemas/DivisaoEnum" }
-        exercicios:
-          type: array
-          items: { $ref: "#/components/schemas/TreinoExercicio" }
-        coach_notes: { type: string }
-
-    WeeklyPlanPreviewResponse:
-      type: object
-      properties:
-        days:
-          type: array
-          items: { $ref: "#/components/schemas/WeeklyPlanPreviewItem" }
-
-    WeeklyPlanSaveRequest:
-      type: object
-      required: [objetivo, nivel, divisao, dias]
-      properties:
-        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
-        nivel: { $ref: "#/components/schemas/NivelEnum" }
-        divisao: { $ref: "#/components/schemas/DivisaoEnum" }
-        dias: { type: integer, minimum: 1, maximum: 7 }
-        treino_id_prefix: { type: string }
-
-    WeeklyPlanSaveResponse:
-      type: object
-      properties:
-        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
-        nivel: { $ref: "#/components/schemas/NivelEnum" }
-        dias: { type: integer }
-        divisao_base: { $ref: "#/components/schemas/DivisaoEnum" }
-        items:
-          type: array
-          items:
-            type: object
-            properties:
-              day_index: { type: integer }
-              id: { type: integer }
-              treino_id: { type: string }
-
-    UserSummary:
-      type: object
-      properties:
-        idade: { type: integer }
-        imc: { type: number }
-        objetivo: { $ref: "#/components/schemas/ObjetivoEnum" }
-        recomendacoes: { type: string }
-
-    # Sessions / Sets
-    Session:
-      type: object
-      properties:
-        id: { type: integer }
-        user_id: { type: string }
-        treino_id: { type: integer, nullable: true }
-        started_at: { type: string, format: date-time }
-        ended_at: { type: string, format: date-time, nullable: true }
-        duration_sec: { type: integer, nullable: true }
-        notes: { type: string, nullable: true }
-        created_at: { type: string, format: date-time }
-
-    PaginatedSessions:
-      type: object
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/Session" }
-        next: { type: integer, nullable: true }
-        count: { type: integer }
-
-    SessionCreateReq:
-      type: object
-      properties:
-        treino_id: { type: integer, nullable: true }
-        started_at: { type: string, format: date-time, nullable: true }
-        notes: { type: string, nullable: true }
-
-    SessionPatchReq:
-      type: object
-      properties:
-        ended_at: { type: string, format: date-time, nullable: true }
-        duration_sec: { type: integer, nullable: true }
-        notes: { type: string, nullable: true }
-
-    WorkoutSet:
-      type: object
-      properties:
-        id: { type: integer }
-        session_id: { type: integer }
-        exercicio_id: { type: integer }
-        set_index: { type: integer }
-        weight_kg: { type: number, format: float, nullable: true }
-        reps: { type: integer, nullable: true }
-        rir: { type: integer, nullable: true }
-        completed: { type: boolean }
-        rest_sec: { type: integer, nullable: true }
-        created_at: { type: string, format: date-time }
-
-    SetCreateReq:
-      type: object
-      required: [exercicio_id, set_index]
-      properties:
-        exercicio_id: { type: integer }
-        set_index: { type: integer, minimum: 1 }
-        weight_kg: { type: number, format: float, nullable: true }
-        reps: { type: integer, nullable: true }
-        rir: { type: integer, nullable: true }
-        completed: { type: boolean, nullable: true }
-        rest_sec: { type: integer, nullable: true }
-
-    SetPatchReq:
-      type: object
-      properties:
-        weight_kg: { type: number, format: float, nullable: true }
-        reps: { type: integer, nullable: true }
-        rir: { type: integer, nullable: true }
-        completed: { type: boolean, nullable: true }
-        rest_sec: { type: integer, nullable: true }
-        set_index: { type: integer, nullable: true }
-
-  /api/admin/overload/logs:
-    get:
-      summary: Listar logs de overload (admin)
-      parameters:
-        - in: query; name: exercicio_id; schema: { type: integer }
-        - in: query; name: user_id; schema: { type: string }
-        - in: query; name: from; schema: { type: string, format: date-time }
-        - in: query; name: to; schema: { type: string, format: date-time }
-        - in: query; name: page; schema: { type: integer, default: 1 }
-        - in: query; name: page_size; schema: { type: integer, default: 50, maximum: 200 }
-      responses:
-        "200": { description: OK }
-
-  /api/admin/overload/stats:
-    get:
-      summary: Estatísticas agregadas (admin)
-      parameters:
-        - in: query; name: group; schema: { type: string, enum: [exercicio, day, hour], default: exercicio }
-        - in: query; name: exercicio_id; schema: { type: integer }
-        - in: query; name: from; schema: { type: string, format: date-time }
-        - in: query; name: to; schema: { type: string, format: date-time }
-        - in: query; name: limit; schema: { type: integer, default: 30, maximum: 1000 }
-      responses:
-        "200": { description: OK }
-
-  /api/admin/overload/export.csv:
-    get:
-      summary: Exportar logs de overload (CSV)
-      parameters:
-        - in: query; name: exercicio_id; schema: { type: integer }
-        - in: query; name: user_id; schema: { type: string }
-        - in: query; name: from; schema: { type: string, format: date-time }
-        - in: query; name: to; schema: { type: string, format: date-time }
-        - in: query; name: limit; schema: { type: integer, default: 10000, maximum: 100000 }
-      responses:
-        "200":
-          description: CSV stream
-          content:
-            text/csv: {}
-
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-  security:
-  - bearerAuth: []
-
-  /api/me/profile:
-    get:
-      summary: Ler perfil do usuário atual
-      responses:
-        "200": { description: OK }
-        "401": { description: Missing user id }
-    patch:
-      summary: Atualizar perfil do usuário (parcial)
+        - $ref: '#/components/parameters/TreinoIdPath'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties:
-                height_cm: { type: number }
-                weight_kg: { type: number }
-                birth_year: { type: integer }
-                gender: { type: string }
-                level: { type: string }
-                goal: { type: string }
       responses:
-        "200": { description: OK }
-        "400": { description: Validation error }
-        "401": { description: Missing user id }
+        "204": { description: atualizado }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /api/treinos/generate:
+    post:
+      tags: [Treinos]
+      summary: Gera um plano de treino (v1.1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: ok
+
+  # ============ SESSIONS ============
+  /api/sessions:
+    get:
+      tags: [Sessions]
+      summary: Lista sessões (com guarda por dono)
+      description: |
+        Filtra por `X-User-ID` (se presente) — retorna sessões do usuário **ou** sessões legadas sem `user_id`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/TreinoIdQuery'
+        - $ref: '#/components/parameters/FromTS'
+        - $ref: '#/components/parameters/ToTS'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutSessionListResponse'
+    post:
+      tags: [Sessions]
+      summary: Cria sessão
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionInput'
+            examples:
+              example1:
+                value:
+                  treino_id: 1
+                  session_at: "2025-08-29T12:00:00Z"
+                  notes: "sessão do user"
+      responses:
+        "201":
+          description: criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer, format: int64 }
+        "400": { $ref: '#/components/responses/BadRequest' }
+
+  /api/sessions/{id}:
+    get:
+      tags: [Sessions]
+      summary: Detalhe da sessão (com guarda por dono)
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutSession'
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/update/{id}:
+    patch:
+      tags: [Sessions]
+      summary: Atualiza uma sessão (parcial)
+      description: Campos suportados — `completed`, `rpe_session`, `duration_min`, `notes`, `session_at`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchSessionInput'
+      responses:
+        "200":
+          description: sessão atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutSession'
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Sessions]
+      summary: Remove uma sessão
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        "204": { description: removido }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ============== SETS ==============
+  /api/sessions/{id}/sets:
+    get:
+      tags: [Sets]
+      summary: Lista sets de uma sessão
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetsListResponse'
+    post:
+      tags: [Sets]
+      summary: Cria set em uma sessão (com guarda por dono)
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSetInput'
+      responses:
+        "201":
+          description: criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutSet'
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /api/sets/{id}:
+    patch:
+      tags: [Sets]
+      summary: Atualiza um set
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/SetIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchSetInput'
+      responses:
+        "204": { description: atualizado }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Sets]
+      summary: Remove um set
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/SetIdPath'
+      responses:
+        "204": { description: removido }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /api/sets/batch:
+    patch:
+      tags: [Sets]
+      summary: Atualiza vários sets em lote
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetsBatchPatchInput'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetsBatchPatchResponse'
+        "400": { $ref: '#/components/responses/BadRequest' }
+
+  # ============ OVERLOAD ============
+  /api/overload/suggest:
+    get:
+      tags: [Overload]
+      summary: Sugestão de carga (GET)
+      parameters:
+        - $ref: '#/components/parameters/ExercicioIdQuery'
+        - $ref: '#/components/parameters/WindowQuery'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverloadSuggestResponse'
+        "400": { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Overload]
+      summary: Sugestão de carga (POST)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverloadSuggestRequest'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverloadSuggestResponse'
+
+  /api/suggestions/next-load:
+    get:
+      tags: [Overload]
+      summary: Legacy - sugestão de carga
+      parameters:
+        - $ref: '#/components/parameters/ExercicioIdQuery'
+        - $ref: '#/components/parameters/WindowQuery'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverloadSuggestResponse'
+
+  # ============== ME ================
+  /api/me/profile:
+    get:
+      tags: [Me]
+      summary: Perfil do usuário
+      parameters:
+        - $ref: '#/components/parameters/XUserIdRequired'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeProfile'
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Me]
+      summary: Atualiza perfil (parcial)
+      parameters:
+        - $ref: '#/components/parameters/XUserIdRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeProfilePatch'
+      responses:
+        "200":
+          description: perfil atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeProfile'
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
 
   /api/me/metrics:
     get:
-      summary: Métricas pessoais a partir dos logs de overload
+      tags: [Me]
+      summary: Métricas pessoais de uso/sugestão
       parameters:
-        - in: query
-          name: from
-          schema: { type: string, format: date-time }
-        - in: query
-          name: to
-          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/XUserIdRequired'
         - in: query
           name: top
-          schema: { type: integer, default: 10, maximum: 100 }
+          schema: { type: integer, default: 5 }
+          description: Quantidade de exercícios no ranking.
       responses:
-        "200": { description: OK }
-        "401": { description: Missing user id }
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeMetricsResponse'
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ============ ADMIN ==============
+  /api/admin/overload/refresh:
+    post:
+      tags: [Admin]
+      summary: Atualiza MV de overload (REFRESH MATERIALIZED VIEW)
+      parameters:
+        - $ref: '#/components/parameters/XAdminToken'
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/overload/logs:
+    get:
+      tags: [Admin]
+      summary: Lista logs de sugestões de overload
+      parameters:
+        - $ref: '#/components/parameters/XAdminToken'
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+      responses:
+        "200":
+          description: ok
+
+  /api/admin/overload/stats:
+    get:
+      tags: [Admin]
+      summary: Estatísticas agregadas de overload
+      parameters:
+        - $ref: '#/components/parameters/XAdminToken'
+      responses:
+        "200":
+          description: ok
+
+  /api/admin/overload/export.csv:
+    get:
+      tags: [Admin]
+      summary: Exporta CSV de logs de overload
+      parameters:
+        - $ref: '#/components/parameters/XAdminToken'
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+  # ============ PLANNER ============
+  /api/plan/weekly:
+    get:
+      tags: [Planner]
+      summary: Gera planner semanal
+      responses:
+        "200":
+          description: ok
+
+  /api/plan/weekly/save:
+    post:
+      tags: [Planner]
+      summary: Salva planner semanal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: ok
+
+components:
+  parameters:
+    XUserId:
+      in: header
+      name: X-User-ID
+      required: false
+      schema: { type: string }
+      description: Identificador do usuário (enquanto JWT não está em todos os clientes).
+    XUserIdRequired:
+      in: header
+      name: X-User-ID
+      required: true
+      schema: { type: string }
+      description: Identificador do usuário (obrigatório neste endpoint).
+    XAdminToken:
+      in: header
+      name: X-Admin-Token
+      required: false
+      schema: { type: string }
+      description: Token administrativo (se **ADMIN_TOKEN** estiver configurado).
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, default: 1, minimum: 1 }
+    PageSize:
+      in: query
+      name: page_size
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+    TreinoIdQuery:
+      in: query
+      name: treino_id
+      schema: { type: integer, format: int64 }
+    TreinoIdPath:
+      in: path
+      name: id
+      required: true
+      schema: { type: integer, format: int64 }
+    SessionIdPath:
+      in: path
+      name: id
+      required: true
+      schema: { type: integer, format: int64 }
+    SetIdPath:
+      in: path
+      name: id
+      required: true
+      schema: { type: integer, format: int64 }
+    FromTS:
+      in: query
+      name: from
+      schema: { type: string, format: date-time }
+      description: Timestamp inicial (RFC3339).
+    ToTS:
+      in: query
+      name: to
+      schema: { type: string, format: date-time }
+      description: Timestamp final (RFC3339).
+    ExercicioIdQuery:
+      in: query
+      name: exercicio_id
+      required: true
+      schema: { type: integer, format: int64 }
+    WindowQuery:
+      in: query
+      name: window
+      required: false
+      schema: { type: integer, default: 12, minimum: 1 }
+      description: Janela de histórico (semanas/treinos) para cálculo.
+
+  responses:
+    BadRequest:
+      description: Requisição inválida
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Não encontrado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Não autorizado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+
+    # -------- Sessions --------
+    CreateSessionInput:
+      type: object
+      required: [treino_id]
+      properties:
+        treino_id: { type: integer, format: int64 }
+        session_at:
+          type: string
+          format: date-time
+          description: RFC3339; se omitido, agora (UTC).
+        notes: { type: string }
+
+    PatchSessionInput:
+      type: object
+      properties:
+        completed: { type: boolean }
+        rpe_session: { type: integer, minimum: 1, maximum: 10 }
+        duration_min: { type: integer, minimum: 0 }
+        notes: { type: string }
+        session_at: { type: string, format: date-time }
+
+    WorkoutSession:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        treino_id: { type: integer, format: int64 }
+        session_at: { type: string, format: date-time }
+        notes: { type: string }
+        completed: { type: boolean }
+        duration_min:
+          type: integer
+          description: Pode ser nulo no banco; omitido no JSON quando ausente.
+        rpe_session:
+          type: integer
+          description: Pode ser nulo no banco; omitido no JSON quando ausente.
+        user_id:
+          type: string
+          description: Pode ser omitido quando sessão é legada (NULL).
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WorkoutSessionListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WorkoutSession' }
+        page: { type: integer }
+        page_size: { type: integer }
+        total_hint: { type: integer }
+
+    # ---------- Sets ----------
+    WorkoutSet:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        session_id: { type: integer, format: int64 }
+        exercicio_id: { type: integer, format: int64 }
+        series: { type: integer }
+        repeticoes: { type: integer }
+        carga_kg: { type: number, format: double, description: Pode estar ausente. }
+        rir: { type: integer, description: Pode estar ausente. }
+        completed: { type: boolean }
+        notes: { type: string }
+
+    SetsListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WorkoutSet' }
+
+    CreateSetInput:
+      type: object
+      required: [exercicio_id, series, repeticoes]
+      properties:
+        exercicio_id: { type: integer, format: int64 }
+        series: { type: integer, minimum: 1 }
+        repeticoes: { type: integer, minimum: 1 }
+        carga_kg: { type: number, format: double }
+        rir: { type: integer, minimum: 0, maximum: 10 }
+        completed: { type: boolean }
+        notes: { type: string }
+
+    PatchSetInput:
+      type: object
+      properties:
+        completed: { type: boolean }
+        rir: { type: integer, minimum: 0, maximum: 10 }
+        carga_kg: { type: number, format: double }
+        repeticoes: { type: integer, minimum: 1 }
+        notes: { type: string }
+
+    SetsBatchPatchInput:
+      type: object
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [id]
+            properties:
+              id: { type: integer, format: int64 }
+              completed: { type: boolean }
+              rir: { type: integer, minimum: 0, maximum: 10 }
+              carga_kg: { type: number, format: double }
+              repeticoes: { type: integer, minimum: 1 }
+              notes: { type: string }
+
+    SetsBatchPatchResponse:
+      type: object
+      properties:
+        updated: { type: integer, description: Quantidade de linhas afetadas. }
+
+    # -------- Overload --------
+    OverloadSuggestRequest:
+      type: object
+      required: [exercicio_id]
+      properties:
+        exercicio_id: { type: integer, format: int64 }
+        window: { type: integer, default: 12, minimum: 1 }
+
+    OverloadSuggestResponse:
+      type: object
+      properties:
+        suggested_carga_kg: { type: number, format: double }
+        suggested_repeticoes: { type: integer }
+        rationale: { type: string }
+        avg_carga_kg: { type: number, format: double }
+        avg_rir: { type: number, format: double }
+        sample_count: { type: integer }
+
+    # --------- Me ----------
+    MeProfile:
+      type: object
+      properties:
+        user_id: { type: string }
+        height_cm: { type: integer, minimum: 50, maximum: 250 }
+        weight_kg: { type: number, format: double, minimum: 25, maximum: 350 }
+        birth_year: { type: integer, minimum: 1900, maximum: 2100 }
+        gender: { type: string, enum: [male, female, other] }
+        level: { type: string }
+        goal: { type: string }
+        updated_at: { type: string, format: date-time }
+
+    MeProfilePatch:
+      type: object
+      properties:
+        height_cm: { type: integer, minimum: 50, maximum: 250 }
+        weight_kg: { type: number, format: double, minimum: 25, maximum: 350 }
+        birth_year: { type: integer, minimum: 1900, maximum: 2100 }
+        gender: { type: string, enum: [male, female, other] }
+        level: { type: string }
+        goal: { type: string }
+
+    MeMetricsResponse:
+      type: object
+      properties:
+        user_id: { type: string }
+        range:
+          type: object
+          properties:
+            from: { type: string, format: date-time }
+            to: { type: string, format: date-time }
+        windows:
+          type: object
+          properties:
+            last_7d: { type: integer }
+            last_30d: { type: integer }
+        totals:
+          type: object
+          properties:
+            requests: { type: integer }
+            unique_exercises: { type: integer }
+            avg_suggested_carga_kg: { type: number, format: double }
+            avg_rir: { type: number, format: double }
+            avg_sample_count: { type: number, format: double }
+        top_exercises:
+          type: array
+          items:
+            type: object
+            properties:
+              exercicio_id: { type: integer, format: int64 }
+              requests: { type: integer }
+              avg_suggested_carga_kg: { type: number, format: double }
+              last_requested_at: { type: string, format: date-time }

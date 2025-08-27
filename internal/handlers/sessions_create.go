@@ -1,71 +1,64 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 )
 
-type createSessionReq struct {
-	TreinoID  int64        `json:"treino_id"`
-	SessionAt time.Time    `json:"session_at"`
-	Notes     string       `json:"notes,omitempty"`
-	Sets      []SessionSet `json:"sets,omitempty"`
-}
+func SessionsCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if sessionsDB == nil {
+		http.Error(w, "sessionsDB not set", http.StatusInternalServerError)
+		return
+	}
 
-// POST /api/sessions
-func CreateSession(db *sql.DB) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var in createSessionReq
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			badRequest(w, "invalid json")
-			return
-		}
-		if err := validateSessionPayload(in.TreinoID, in.SessionAt); err != nil {
-			badRequest(w, err.Error())
-			return
-		}
-		tx, err := db.BeginTx(r.Context(), nil)
+	// Dono da sessão (JWT ou header X-User-ID)
+	userID := strings.TrimSpace(GetUserID(r))
+
+	var in struct {
+		TreinoID  int64   `json:"treino_id"`
+		SessionAt *string `json:"session_at,omitempty"` // RFC3339 opcional
+		Notes     *string `json:"notes,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		badRequest(w, "invalid json")
+		return
+	}
+	if in.TreinoID <= 0 {
+		badRequest(w, "treino_id required")
+		return
+	}
+
+	// session_at: agora (UTC) se não vier
+	sessionAt := time.Now().UTC()
+	if in.SessionAt != nil && strings.TrimSpace(*in.SessionAt) != "" {
+		t, err := time.Parse(time.RFC3339, *in.SessionAt)
 		if err != nil {
-			internalErr(w, err)
+			badRequest(w, "invalid session_at (RFC3339)")
 			return
 		}
-		var sid int64
-		err = tx.QueryRow(`
-			INSERT INTO workout_sessions (treino_id, session_at, notes)
-			VALUES ($1,$2,$3)
-			RETURNING id
-		`, in.TreinoID, in.SessionAt, in.Notes).Scan(&sid)
-		if err != nil {
-			_ = tx.Rollback()
-			internalErr(w, err)
-			return
-		}
-		// sets opcionais
-		if len(in.Sets) > 0 {
-			stmt, err := tx.Prepare(`
-			  INSERT INTO workout_sets (session_id, exercicio_id, series, repeticoes, carga_kg, rir, completed, notes)
-			  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`)
-			if err != nil {
-				_ = tx.Rollback()
-				internalErr(w, err)
-				return
-			}
-			defer stmt.Close()
-			for _, s := range in.Sets {
-				if _, err := stmt.Exec(sid, s.ExercicioID, s.Series, s.Repeticoes, s.CargaKg, s.RIR, s.Completed, s.Notes); err != nil {
-					_ = tx.Rollback()
-					internalErr(w, err)
-					return
-				}
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			internalErr(w, err)
-			return
-		}
-		// ✅ aqui era writeJSON; trocamos por jsonWrite (helper deste pacote)
-		jsonWrite(w, http.StatusCreated, map[string]any{"id": sid})
-	})
+		sessionAt = t
+	}
+
+	notes := ""
+	if in.Notes != nil {
+		notes = *in.Notes
+	}
+
+	const q = `
+INSERT INTO workout_sessions (treino_id, session_at, notes, user_id)
+VALUES ($1, $2, $3, NULLIF($4, ''))
+RETURNING id
+`
+	var id int64
+	if err := sessionsDB.QueryRow(q, in.TreinoID, sessionAt, notes, userID).Scan(&id); err != nil {
+		internalErr(w, err)
+		return
+	}
+	jsonWrite(w, http.StatusCreated, map[string]any{"id": id})
 }
