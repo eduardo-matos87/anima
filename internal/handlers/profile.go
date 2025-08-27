@@ -13,6 +13,11 @@ type userProfileOut struct {
 	BirthDate       *string  `json:"birth_date,omitempty"` // YYYY-MM-DD
 	TrainingGoal    *string  `json:"training_goal,omitempty"`
 	ExperienceLevel *string  `json:"experience_level,omitempty"`
+<<<<<<< HEAD
+=======
+	ActivityLevel   *string  `json:"activity_level,omitempty"`
+	UseAI           *bool    `json:"use_ai,omitempty"`
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 	Notes           *string  `json:"notes,omitempty"`
 	UpdatedAt       *string  `json:"updated_at,omitempty"` // RFC3339
 }
@@ -23,11 +28,21 @@ type userProfileIn struct {
 	BirthDate       *string  `json:"birth_date"` // YYYY-MM-DD
 	TrainingGoal    *string  `json:"training_goal"`
 	ExperienceLevel *string  `json:"experience_level"`
+<<<<<<< HEAD
 	Notes           *string  `json:"notes"`
 }
 
 // GET:  /api/me/profile
 // PUT:  /api/me/profile   (partial update; merge + upsert)
+=======
+	ActivityLevel   *string  `json:"activity_level"`
+	UseAI           *bool    `json:"use_ai"`
+	Notes           *string  `json:"notes"`
+}
+
+// GET: /api/me/profile
+// PUT: /api/me/profile  (merge + upsert)
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 func UserProfile(db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -47,6 +62,7 @@ func getProfile(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	var h sql.NullInt64
 	var wkg sql.NullFloat64
 	var bd sql.NullTime
+<<<<<<< HEAD
 	var goal, lvl, notes sql.NullString
 	var upd sql.NullTime
 
@@ -54,6 +70,17 @@ func getProfile(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		SELECT height_cm, weight_kg, birth_date, training_goal, experience_level, notes, updated_at
 		FROM user_profiles WHERE user_id=$1
 	`, uid).Scan(&h, &wkg, &bd, &goal, &lvl, &notes, &upd)
+=======
+	var goal, lvl, notes, act sql.NullString
+	var use sql.NullBool
+	var upd sql.NullTime
+
+	err := db.QueryRow(`
+		SELECT height_cm, weight_kg, birth_date, training_goal, experience_level,
+		       activity_level, use_ai, notes, updated_at
+		FROM user_profiles WHERE user_id=$1
+	`, uid).Scan(&h, &wkg, &bd, &goal, &lvl, &act, &use, &notes, &upd)
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 
 	out := userProfileOut{}
 	switch err {
@@ -78,6 +105,17 @@ func getProfile(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 			s := lvl.String
 			out.ExperienceLevel = &s
 		}
+<<<<<<< HEAD
+=======
+		if act.Valid {
+			s := act.String
+			out.ActivityLevel = &s
+		}
+		if use.Valid {
+			v := use.Bool
+			out.UseAI = &v
+		}
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 		if notes.Valid {
 			s := notes.String
 			out.Notes = &s
@@ -87,7 +125,11 @@ func getProfile(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 			out.UpdatedAt = &s
 		}
 	case sql.ErrNoRows:
+<<<<<<< HEAD
 		// Sem registro ainda: retorna {} com 200
+=======
+		// retorna objeto vazio
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -109,19 +151,34 @@ func putProfile(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	var curH sql.NullInt64
 	var curW sql.NullFloat64
 	var curBD sql.NullTime
+<<<<<<< HEAD
 	var curGoal, curLvl, curNotes sql.NullString
 
 	err := db.QueryRow(`
 		SELECT height_cm, weight_kg, birth_date, training_goal, experience_level, notes
 		FROM user_profiles WHERE user_id=$1
 	`, uid).Scan(&curH, &curW, &curBD, &curGoal, &curLvl, &curNotes)
+=======
+	var curGoal, curLvl, curAct, curNotes sql.NullString
+	var curUse sql.NullBool
+
+	err := db.QueryRow(`
+		SELECT height_cm, weight_kg, birth_date, training_goal, experience_level,
+		       activity_level, use_ai, notes
+		FROM user_profiles WHERE user_id=$1
+	`, uid).Scan(&curH, &curW, &curBD, &curGoal, &curLvl, &curAct, &curUse, &curNotes)
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 
 	if err != nil && err != sql.ErrNoRows {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+<<<<<<< HEAD
 	// Merge (campos presentes no JSON substituem os atuais)
+=======
+	// Merge
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 	if in.HeightCM != nil {
 		if *in.HeightCM <= 0 {
 			curH = sql.NullInt64{}
@@ -162,6 +219,19 @@ func putProfile(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 			curLvl = sql.NullString{String: *in.ExperienceLevel, Valid: true}
 		}
 	}
+<<<<<<< HEAD
+=======
+	if in.ActivityLevel != nil {
+		if *in.ActivityLevel == "" {
+			curAct = sql.NullString{}
+		} else {
+			curAct = sql.NullString{String: *in.ActivityLevel, Valid: true}
+		}
+	}
+	if in.UseAI != nil {
+		curUse = sql.NullBool{Bool: *in.UseAI, Valid: true}
+	}
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 	if in.Notes != nil {
 		if *in.Notes == "" {
 			curNotes = sql.NullString{}
@@ -173,22 +243,38 @@ func putProfile(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	// Upsert
 	_, err = db.Exec(`
 		INSERT INTO user_profiles
+<<<<<<< HEAD
 			(user_id, height_cm, weight_kg, birth_date, training_goal, experience_level, notes, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+=======
+			(user_id, height_cm, weight_kg, birth_date, training_goal, experience_level, activity_level, use_ai, notes, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 		ON CONFLICT (user_id) DO UPDATE SET
 			height_cm = EXCLUDED.height_cm,
 			weight_kg = EXCLUDED.weight_kg,
 			birth_date = EXCLUDED.birth_date,
 			training_goal = EXCLUDED.training_goal,
 			experience_level = EXCLUDED.experience_level,
+<<<<<<< HEAD
 			notes = EXCLUDED.notes,
 			updated_at = now()
 	`, uid, curH, curW, curBD, curGoal, curLvl, curNotes)
+=======
+			activity_level = EXCLUDED.activity_level,
+			use_ai = EXCLUDED.use_ai,
+			notes = EXCLUDED.notes,
+			updated_at = now()
+	`, uid, curH, curW, curBD, curGoal, curLvl, curAct, curUse, curNotes)
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+<<<<<<< HEAD
 	// Retorna o perfil atualizado
+=======
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
 	getProfile(db, w, r)
 }

@@ -13,3 +13,7 @@ anima.db
 
 # locais
 Makefile.bak
+<<<<<<< HEAD
+=======
+.env
+>>>>>>> 948aba3 (Profiles + Metrics + Overload Admin + Infra (#1))
