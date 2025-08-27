@@ -1,26 +1,27 @@
--- Cria uma sessão e 2 sets concluídos para exercicio_id=10 (exemplo)
--- Ajuste os IDs conforme seu ambiente.
+-- 002_workout_demo.sql — compatível com started_at e weight_kg/reps/set_index
 
--- usa o primeiro treino existente
-WITH t AS (
-  SELECT id FROM treinos ORDER BY id ASC LIMIT 1
-)
-INSERT INTO workout_sessions (treino_id, session_at, notes)
-SELECT t.id, NOW() - INTERVAL '1 day', 'seed session A'
-FROM t
-RETURNING id;
-
--- pega a última sessão criada e adiciona sets
+-- sessão de demo para o usuário 'seed'
 WITH s AS (
-  SELECT id FROM workout_sessions ORDER BY id DESC LIMIT 1
+  INSERT INTO workout_sessions (user_id, started_at, notes)
+  VALUES ('seed', NOW() - INTERVAL '1 day', 'seed session A')
+  RETURNING id
 )
-INSERT INTO workout_sets (session_id, exercicio_id, series, repeticoes, carga_kg, rir, completed, notes)
-SELECT s.id, 10, 3, 10, 50, 2, TRUE, 'seed set 1'
-FROM s;
+INSERT INTO workout_sets (
+  session_id, exercicio_id, set_index, weight_kg, reps, rir, completed, rest_sec
+)
+SELECT id, 1, 1, 40.00, 10, 2, TRUE, 90 FROM s
+UNION ALL
+SELECT id, 1, 2, 42.50, 10, 2, TRUE, 90 FROM s;
 
-WITH s AS (
-  SELECT id FROM workout_sessions ORDER BY id DESC LIMIT 1
+-- outra sessão pra diversificar histórico
+WITH s2 AS (
+  INSERT INTO workout_sessions (user_id, started_at, notes)
+  VALUES ('seed', NOW() - INTERVAL '2 days', 'seed session B')
+  RETURNING id
 )
-INSERT INTO workout_sets (session_id, exercicio_id, series, repeticoes, carga_kg, rir, completed, notes)
-SELECT s.id, 10, 3, 10, 50, 2, TRUE, 'seed set 2'
-FROM s;
+INSERT INTO workout_sets (
+  session_id, exercicio_id, set_index, weight_kg, reps, rir, completed, rest_sec
+)
+SELECT id, 2, 1, 25.00, 12, 2, TRUE, 60 FROM s2
+UNION ALL
+SELECT id, 2, 2, 27.50, 10, 1, TRUE, 60 FROM s2;
