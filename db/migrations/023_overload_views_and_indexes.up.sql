@@ -1,4 +1,3 @@
--- 023: índices e views para overload (compatível com workout_sets/workout_sessions atuais)
 
 -- Índices (todos idempotentes; alguns já existem e serão ignorados)
 CREATE INDEX IF NOT EXISTS idx_workout_sets_exercicio_completed_id_desc
@@ -7,11 +6,9 @@ CREATE INDEX IF NOT EXISTS idx_workout_sets_exercicio_completed_id_desc
 CREATE INDEX IF NOT EXISTS idx_workout_sets_exercicio_id_desc
   ON workout_sets (exercicio_id, id DESC);
 
-CREATE INDEX IF NOT EXISTS idx_workout_sets_session_id
-  ON workout_sets (session_id);
-
-CREATE INDEX IF NOT EXISTS idx_workout_sessions_user_id
-  ON workout_sessions (user_id);
+-- Índices abaixo já são criados nas migrations de criação das tabelas
+-- (019_create_workout_sets.up.sql e 018_create_workout_sessions.up.sql),
+-- então evitamos duplicidade que gera "already exists" notices.
 
 -- ===== GLOBAL (por exercício) =====
 CREATE OR REPLACE VIEW workout_sets_recent12 AS
