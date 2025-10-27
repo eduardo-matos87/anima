@@ -16,7 +16,7 @@ import (
 // PATCH  /api/me/profile   {height_cm, weight_kg, birth_year, gender, level, goal}
 func MeProfile(db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID := strings.TrimSpace(GetUserID(r))
+    userID := strings.TrimSpace(GetUserID(r))
 		if userID == "" {
 			http.Error(w, "unauthorized (missing user id)", http.StatusUnauthorized)
 			return
