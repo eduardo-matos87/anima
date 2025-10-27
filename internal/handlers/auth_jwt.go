@@ -1,6 +1,7 @@
 package handlers
 
 import (
+    "crypto/rand"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -117,4 +118,37 @@ func verifyJWTHS256(token, secret string) (*jwtClaims, error) {
 		}
 	}
 	return &claims, nil
+}
+
+// IssueJWTHS256 emite um JWT assinado (HS256) com sub, iat e exp.
+// Retorna token e expiresIn (segundos) calculado a partir de ttlHours.
+func IssueJWTHS256(sub string, ttlHours int, secret string) (string, int64, error) {
+    if sub == "" || secret == "" || ttlHours <= 0 {
+        return "", 0, errInvalidToken
+    }
+    enc := base64.RawURLEncoding
+
+    header := map[string]any{"alg": "HS256", "typ": "JWT"}
+    now := time.Now().Unix()
+    exp := time.Now().Add(time.Duration(ttlHours) * time.Hour).Unix()
+    // random jti to ensure refreshed tokens differ even within same second
+    jti := make([]byte, 12)
+    _, _ = rand.Read(jti)
+    payload := map[string]any{
+        "sub": sub,
+        "iat": now,
+        "exp": exp,
+        "jti": base64.RawURLEncoding.EncodeToString(jti),
+    }
+
+    hb, _ := json.Marshal(header)
+    pb, _ := json.Marshal(payload)
+
+    seg := enc.EncodeToString(hb) + "." + enc.EncodeToString(pb)
+    mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write([]byte(seg))
+    sig := mac.Sum(nil)
+
+    token := seg + "." + enc.EncodeToString(sig)
+    return token, exp - now, nil
 }

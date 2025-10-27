@@ -101,10 +101,16 @@ func main() {
 		handlers.ListExercises(db).ServeHTTP(w, r)
 	})
 
+	// ===== Auth =====
+	// POST /api/auth/login
+	mux.HandleFunc("/api/auth/login", handlers.AuthLogin(db))
+	// POST /api/auth/refresh
+	mux.HandleFunc("/api/auth/refresh", handlers.AuthRefresh())
+
 	// ===== Treinos (coleção) =====
 	// GET /api/treinos (listagem)
 	// POST /api/treinos (por enquanto não implementado nesta branch)
-	mux.HandleFunc("/api/treinos", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/treinos", handlers.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			handlers.TreinosCollection(db).ServeHTTP(w, r)
@@ -113,22 +119,22 @@ func main() {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
+	})))
 
 	// ===== Treinos (by-key) =====
 	// GET /api/treinos/by-key/{key}
-	mux.HandleFunc("/api/treinos/by-key/", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/treinos/by-key/", handlers.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		handlers.TreinosGetByKey(db).ServeHTTP(w, r)
-	})
+	})))
 
 	// ===== Treinos (item) =====
 	// GET /api/treinos/{id}
 	// PATCH /api/treinos/{id}
-	mux.HandleFunc("/api/treinos/", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/treinos/", handlers.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		// evita conflitar com /by-key (já roteado acima)
 		if strings.HasPrefix(path, "/api/treinos/by-key/") {
@@ -143,17 +149,17 @@ func main() {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
+	})))
 
 	// ===== Gerador v1.1 =====
 	// POST /api/treinos/generate
-	mux.HandleFunc("/api/treinos/generate", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/treinos/generate", handlers.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		handlers.GenerateTreino(db).ServeHTTP(w, r)
-	})
+	})))
 
 	// ===== Overload (compat legacy) =====
 	// GET /api/suggestions/next-load
@@ -268,9 +274,9 @@ func main() {
 	mux.HandleFunc("/api/sets/batch", handlers.SetsBatch)
 
 	// ===== Perfil & Métricas do usuário =====
-	mux.Handle("/api/me/profile", handlers.MeProfile(db))        // GET/PATCH
-	mux.Handle("/api/me/metrics", handlers.MeMetrics(db))        // GET
-	mux.Handle("/api/me/summary", handlers.MeSummaryHandler(db)) // GET
+	mux.Handle("/api/me/profile", handlers.RequireAuth(handlers.MeProfile(db)))        // GET/PATCH
+	mux.Handle("/api/me/metrics", handlers.RequireAuth(handlers.MeMetrics(db)))        // GET
+	mux.Handle("/api/me/summary", handlers.RequireAuth(handlers.MeSummaryHandler(db))) // GET
 
 	// ===== Server =====
 	srv := &http.Server{
