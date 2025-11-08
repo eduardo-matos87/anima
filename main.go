@@ -82,13 +82,19 @@ func main() {
 
 	// Health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := db.Ping(); err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		if err := db.PingContext(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, `{"ok":false}`)
+			fmt.Fprint(w, `{"status":"error"}`)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		fmt.Fprint(w, `{"ok":true}`)
+
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"status":"ok"}`)
 	})
 
 	// ===== Catálogo =====
@@ -298,7 +304,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("[anima] escutando em :%s", port)
+		log.Printf("Listening on :%s", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("erro ListenAndServe: %v", err)
 		}
