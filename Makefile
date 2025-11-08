@@ -25,10 +25,8 @@ MIGRATIONS_DIR = ./db/migrations
 
 # ===== App =====
 run:
-	@PORT?=8081
-	@DATABASE_URL?=postgres://anima:anima@localhost:5432/anima?sslmode=disable
-	@echo "== Run API =="
-	PORT=$$PORT DATABASE_URL=$$DATABASE_URL go run .
+	@echo "Starting Anima..."
+	@set -a; [ -f .env ] && . ./.env; set +a; go run .
 
 
 # ===== Banco / migrações utilitárias =====
