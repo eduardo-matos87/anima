@@ -95,13 +95,13 @@ cmd_drift() {
   PGPASSWORD="$DB_PASS" pg_dump --schema-only --no-owner --no-privileges --no-comments \
     "${EXCLUDES[@]}" \
     --host "$PGHOST" --port "$PGPORT" --username "$DB_USER" "$tmp_db" \
-    | sed -E '/^--/d;/^[[:space:]]*$/d' > "$dump_tmp"
+    | sed -E -e '/^--/d' -e '/^[[:space:]]*$/d' -e '/^\\(un)?restrict[[:space:]]/d' > "$dump_tmp"
 
   # Dump do DB live, removendo comentários e linhas vazias
   PGPASSWORD="$DB_PASS" pg_dump --schema-only --no-owner --no-privileges --no-comments \
     "${EXCLUDES[@]}" \
     --host "$PGHOST" --port "$PGPORT" --username "$DB_USER" "$DB_NAME" \
-    | sed -E '/^--/d;/^[[:space:]]*$/d' > "$dump_live"
+    | sed -E -e '/^--/d' -e '/^[[:space:]]*$/d' -e '/^\\(un)?restrict[[:space:]]/d' > "$dump_live"
 
   if diff -u "$dump_live" "$dump_tmp" > /tmp/drift.diff; then
     echo "Sem drift detectado."
